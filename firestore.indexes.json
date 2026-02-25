@@ -1,0 +1,58 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "ofertas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ativa",    "order": "ASCENDING" },
+        { "fieldPath": "geohash",  "order": "ASCENDING" },
+        { "fieldPath": "dataFim",  "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ofertas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pmeId",     "order": "ASCENDING" },
+        { "fieldPath": "ativa",     "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ofertas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "ativa",        "order": "ASCENDING" },
+        { "fieldPath": "pmeCategoria", "order": "ASCENDING" },
+        { "fieldPath": "dataFim",      "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reservas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "consumidorId", "order": "ASCENDING" },
+        { "fieldPath": "status",       "order": "ASCENDING" },
+        { "fieldPath": "createdAt",    "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reservas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "pmeId",           "order": "ASCENDING" },
+        { "fieldPath": "status",          "order": "ASCENDING" },
+        { "fieldPath": "dataConfirmacao", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "reservas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status",    "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
