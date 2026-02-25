@@ -1,0 +1,97 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // === FUNÇÕES AUXILIARES ===
+
+    function isAuth() {
+      return request.auth != null;
+    }
+
+    function isPME() {
+      return isAuth() && request.auth.token.role == 'pme';
+    }
+
+    function isConsumidor() {
+      return isAuth() && request.auth.token.role == 'consumidor';
+    }
+
+    function isPMEOwner(pmeId) {
+      return isPME() && request.auth.uid == pmeId;
+    }
+
+    function isConsumidorOwner(consumidorId) {
+      return isConsumidor() && request.auth.uid == consumidorId;
+    }
+
+    // === PMES ===
+    match /pmes/{pmeId} {
+      allow read: if isPMEOwner(pmeId);
+      allow create: if isPME() && request.auth.uid == pmeId;
+      allow update: if isPMEOwner(pmeId);
+      allow delete: if false;
+    }
+
+    // === OFERTAS ===
+    match /ofertas/{ofertaId} {
+      // Qualquer pessoa lê ofertas ativas (consumidor sem login incluso)
+      allow read: if resource.data.ativa == true;
+      // PME lê suas próprias ofertas (inclusive inativas)
+      allow read: if isPMEOwner(resource.data.pmeId);
+      // Somente a PME dona cria/edita/deleta
+      allow create: if isPME() &&
+                    request.resource.data.pmeId == request.auth.uid;
+      allow update: if isPMEOwner(resource.data.pmeId);
+      allow delete: if isPMEOwner(resource.data.pmeId);
+    }
+
+    // === RESERVAS ===
+    match /reservas/{reservaId} {
+      // Leitura: consumidor dono OU PME dona da oferta
+      allow read: if isAuth() && (
+        resource.data.consumidorId == request.auth.uid ||
+        resource.data.pmeId == request.auth.uid
+      );
+      // Create: BLOQUEADO client-side — somente via Cloud Function gerarPix()
+      allow create: if false;
+      // Update: consumidor só pode cancelar sua própria reserva confirmada
+      allow update: if isConsumidorOwner(resource.data.consumidorId) &&
+                    request.resource.data.status == 'cancelado' &&
+                    resource.data.status == 'confirmado' &&
+                    request.resource.data.dataCancelamento != null &&
+                    request.resource.data.diff(resource.data).affectedKeys()
+                      .hasOnly(['status', 'dataCancelamento', 'motivoCancelamento']);
+      allow delete: if false;
+    }
+
+    // === CONSUMIDORES ===
+    match /consumidores/{consumidorId} {
+      allow read: if isConsumidorOwner(consumidorId);
+      allow create: if false; // Criado via Cloud Function onUserCreate
+      allow update: if isConsumidorOwner(consumidorId);
+      allow delete: if false;
+    }
+
+    // === CONVERSAS IA ===
+    match /conversasIA/{conversaId} {
+      allow read: if isPME() && resource.data.pmeId == request.auth.uid;
+      allow create: if isPME() && request.resource.data.pmeId == request.auth.uid;
+      allow update: if isPME() && resource.data.pmeId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // === ASSINATURAS ===
+    match /assinaturas/{assinaturaId} {
+      allow read: if isPME() && resource.data.pmeId == request.auth.uid;
+      allow create: if false; // Somente via Cloud Function (Stripe webhook)
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // === RATE LIMITS — somente Cloud Functions via Admin SDK ===
+    match /rateLimits/{uid} {
+      allow read: if false;
+      allow write: if false;
+    }
+  }
+}
