@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<!-- ==========================================
+     [ARQUIVO] index.html v1.0
+     [DATA] 2026-02-25
+     [REQUER] vite.config.ts, src/main.tsx
+     ========================================== -->
+<html lang="pt-BR">
+  <head>
+    <!-- #region META -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#FF6B00" />
+    <meta name="description" content="Ofertas relâmpago de PMEs perto de você. Pague com Pix, use na hora." />
+    <!-- #endregion META -->
+
+    <!-- #region PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <!-- #endregion PWA -->
+
+    <!-- #region FONTS -->
+    <!-- Inter — tipografia principal do Design System -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <!-- #endregion FONTS -->
+
+    <!-- #region LEAFLET -->
+    <!-- CSS do Leaflet — necessário para o mapa renderizar corretamente -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <!-- #endregion LEAFLET -->
+
+    <title>FlashDeal — Ofertas Relâmpago</title>
+    <link rel="icon" type="image/svg+xml" href="/icons/icon-192.png" />
+  </head>
+  <body>
+    <!-- #region APP -->
+    <!-- React monta aqui — não adicionar nada dentro desta div -->
+    <div id="root"></div>
+    <!-- #endregion APP -->
+
+    <!-- #region ENTRY -->
+    <!-- Vite injeta o bundle aqui automaticamente no build -->
+    <script type="module" src="/src/main.tsx"></script>
+    <!-- #endregion ENTRY -->
+  </body>
+</html>
