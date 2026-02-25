@@ -115,7 +115,7 @@ const QRScanner: React.FC<QRScannerProps> = ({ onValidar, onConfirmarEntrega }) 
     };
 
     animFrameRef.current = requestAnimationFrame(scan);
-  }, [pararCamera]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pararCamera, handleValidar]); // handleValidar é useCallback — deps corretas
   // #endregion
 
   // #region Ciclo de vida da câmera
@@ -132,7 +132,7 @@ const QRScanner: React.FC<QRScannerProps> = ({ onValidar, onConfirmarEntrega }) 
 
   // #region Handlers
   /** Chama Cloud Function para validar o código */
-  const handleValidar = async (codigo: string) => {
+  const handleValidar = useCallback(async (codigo: string) => {
     setLoading(true);
     setCodigoAtual(codigo);
     try {
@@ -145,7 +145,7 @@ const QRScanner: React.FC<QRScannerProps> = ({ onValidar, onConfirmarEntrega }) 
     } finally {
       setLoading(false);
     }
-  };
+  }, [onValidar]);
 
   /** Confirma entrega do voucher válido → atualiza status para 'usado' */
   const handleConfirmar = async () => {
@@ -160,8 +160,9 @@ const QRScanner: React.FC<QRScannerProps> = ({ onValidar, onConfirmarEntrega }) 
     }
   };
 
-  /** Reseta para novo scan */
+  /** Reseta para novo scan — para câmera antes de reiniciar para evitar duplo stream */
   const handleNovoScan = () => {
+    pararCamera(); // Garante que stream anterior foi encerrado
     setTela('scanner');
     setResultado(null);
     setCodigoManual('');
