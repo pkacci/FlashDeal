@@ -1,0 +1,59 @@
+# ==========================================
+# [ARQUIVO] deploy.yml v1.0
+# [DATA] 2026-02-25
+# [REQUER] firebase.json + 7 GitHub Secrets
+# ==========================================
+
+name: Deploy FlashDeal
+
+on:
+  push:
+    branches:
+      - main  # Dispara apenas no push para main
+
+jobs:
+  build-and-deploy:
+    name: Build e Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      # #region CHECKOUT
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+      # #endregion CHECKOUT
+
+      # #region NODE
+      - name: Configurar Node.js 18
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: 'npm'            # Cache do npm — build mais rápido
+      # #endregion NODE
+
+      # #region INSTALL
+      - name: Instalar dependências
+        run: npm ci               # ci = install limpo e reproduzível
+      # #endregion INSTALL
+
+      # #region BUILD
+      - name: Build do projeto
+        run: npm run build
+        env:
+          # Injeta os secrets como variáveis de ambiente no build
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+      # #endregion BUILD
+
+      # #region DEPLOY
+      - name: Deploy no Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}           # Token automático do GitHub
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          projectId: flashdeal-f590a
+          channelId: live                                  # Deploy em produção
+      # #endregion DEPLOY
