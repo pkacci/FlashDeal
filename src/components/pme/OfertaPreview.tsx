@@ -139,9 +139,11 @@ const OfertaPreview: React.FC<OfertaPreviewProps> = ({ data }) => {
                 </p>
               )}
               <p className="text-base font-bold text-neutral-800">
-                {valorOferta > 0
-                  ? `R$ ${valorOferta.toFixed(2)}`
-                  : <span className="text-neutral-300">R$ —</span>}
+                {valorOferta > 0 ? (
+                  `R$ ${valorOferta.toFixed(2)}`
+                ) : (
+                  <span className="text-neutral-300">R$ —</span>
+                )}
               </p>
               {economia > 0 && (
                 <p className="text-xs text-green-600">
