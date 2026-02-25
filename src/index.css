@@ -1,138 +1,92 @@
-/* ==========================================
-   [ARQUIVO] index.css v1.0
-   [DATA] 2026-02-25
-   [REQUER] tailwind.config.js
-   ========================================== */
+/* ============================================================
+   INÍCIO: src/index.css
+   Versão: 1.0.0 | Data: 2026-02-25
+   Descrição: Estilos globais do FlashDeal
+              — Tailwind base, components, utilities
+              — Classes utilitárias reutilizáveis (.btn-primary, .card)
+              — Scrollbar hide para mobile
+              — Animação de bounce para dots da IA
+   ============================================================ */
 
-/* #region TAILWIND */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-/* #endregion TAILWIND */
 
-/* #region BASE */
-@layer base {
-  * {
-    box-sizing: border-box;
-    -webkit-tap-highlight-color: transparent; /* Remove highlight azul no mobile */
-  }
+/* === CLASSES UTILITÁRIAS GLOBAIS ===
+   Definidas como @layer components para manter consistência
+   e permitir override com utilities quando necessário */
 
-  html {
-    font-family: 'Inter', system-ui, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
-
-  body {
-    @apply bg-neutral-50 text-neutral-900;
-    overscroll-behavior: none; /* Evita bounce no iOS */
-  }
-
-  /* Scrollbar invisível mas funcional */
-  ::-webkit-scrollbar { width: 0; background: transparent; }
-}
-/* #endregion BASE */
-
-/* #region COMPONENTS — Classes reutilizáveis */
 @layer components {
 
-  /* Botão primário — CTA principal laranja */
+  /* Botão principal — laranja FlashDeal */
   .btn-primary {
-    @apply bg-primary-500 text-white font-semibold
-           px-6 py-4 rounded-2xl w-full
-           shadow-primary active:scale-95
-           transition-all duration-150
-           disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply bg-primary-500 text-white font-semibold py-3 px-6
+           rounded-xl active:scale-95 transition-transform
+           hover:bg-primary-600 disabled:opacity-50
+           disabled:cursor-not-allowed;
   }
 
-  /* Botão secundário — ações secundárias */
-  .btn-secondary {
-    @apply bg-neutral-100 text-neutral-900 font-semibold
-           px-6 py-4 rounded-2xl w-full
-           active:scale-95 transition-all duration-150;
-  }
-
-  /* Botão sucesso — confirmação Pix */
-  .btn-success {
-    @apply bg-success-500 text-white font-semibold
-           px-6 py-4 rounded-2xl w-full
-           shadow-success active:scale-95
-           transition-all duration-150;
-  }
-
-  /* Card padrão — ofertas, reservas */
+  /* Card padrão — usado em todo o app */
   .card {
-    @apply bg-white rounded-lg shadow-md p-4
-           border border-neutral-100;
-  }
-
-  /* Card destacado — métricas dashboard */
-  .card-highlight {
-    @apply bg-white rounded-xl shadow-lg p-6
-           border border-neutral-100;
+    @apply bg-white rounded-2xl shadow-card border border-neutral-100;
   }
 
   /* Input padrão */
   .input {
-    @apply w-full bg-neutral-100 text-neutral-900
-           rounded-md px-4 py-3 text-base
-           border border-transparent
-           focus:outline-none focus:border-primary-500
-           placeholder:text-neutral-500
-           transition-colors duration-150;
-  }
-
-  /* Badge de status */
-  .badge-active   { @apply bg-success-50 text-success-600 text-xs font-medium px-2 py-1 rounded-full; }
-  .badge-expired  { @apply bg-neutral-100 text-neutral-500 text-xs font-medium px-2 py-1 rounded-full; }
-  .badge-canceled { @apply bg-danger-50 text-danger-500 text-xs font-medium px-2 py-1 rounded-full; }
-
-  /* Bottom nav — fixo no rodapé mobile */
-  .bottom-nav {
-    @apply fixed bottom-0 left-0 right-0
-           bg-white border-t border-neutral-200
-           flex items-center justify-around
-           px-4 py-2 z-50
-           safe-pb; /* Respeita área segura iPhone */
-  }
-
-  /* Sticky CTA — botão fixo no rodapé */
-  .sticky-cta {
-    @apply fixed bottom-0 left-0 right-0
-           bg-white border-t border-neutral-200
-           p-4 z-40;
-  }
-
-  /* Timer urgente — pulsa quando < 30min */
-  .timer-urgent {
-    @apply text-danger-500 font-bold animate-pulse-fast;
-  }
-
-  /* Gradiente do hero */
-  .hero-gradient {
-    @apply bg-gradient-to-br from-primary-500 to-primary-600;
+    @apply w-full border border-neutral-300 rounded-xl px-4 py-3
+           text-sm focus:outline-none focus:border-primary-500
+           transition-colors;
   }
 }
-/* #endregion COMPONENTS */
 
-/* #region UTILITIES */
 @layer utilities {
-  /* Área segura para iPhone (notch + home bar) */
-  .safe-pb { padding-bottom: env(safe-area-inset-bottom); }
-  .safe-pt { padding-top: env(safe-area-inset-top); }
 
-  /* Texto com gradiente laranja */
-  .text-gradient {
-    @apply bg-gradient-to-r from-primary-500 to-warning-500
-           bg-clip-text text-transparent;
+  /* Esconde scrollbar mantendo funcionalidade de scroll
+     Usado em FiltroCategoria (chips horizontais) */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 
-  /* Truncar texto em 2 linhas */
-  .line-clamp-2 {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+  /* Garante que o conteúdo não fique atrás da BottomNav */
+  .pb-nav {
+    padding-bottom: 4.5rem;
   }
 }
-/* #endregion UTILITIES */
+
+/* === BASE GLOBAL === */
+
+@layer base {
+  * {
+    /* Remove tap highlight azul no Android */
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  html {
+    /* Smooth scroll global */
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-neutral-50 text-neutral-800 font-sans;
+    /* Evita zoom indesejado ao focar input no iOS */
+    touch-action: manipulation;
+  }
+
+  /* Remove spinners de input[type=number] */
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+  }
+}
+
+/* ============================================================
+   FIM: src/index.css
+   ============================================================ */
