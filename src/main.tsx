@@ -1,22 +1,30 @@
-// ==========================================
-// [ARQUIVO] main.tsx v1.0
-// [DATA] 2026-02-25
-// [REQUER] index.html, App.tsx
-// ==========================================
+// ============================================================
+// INÍCIO: src/main.tsx
+// Versão: 1.0.0 | Data: 2026-02-25
+// Deps: React, ReactDOM, App
+// Descrição: Entry point da aplicação
+//            — Importa Tailwind CSS global
+//            — Importa Leaflet CSS (obrigatório para mapa renderizar)
+//            — Monta React no #root com StrictMode
+// ============================================================
 
-// #region IMPORTS
-import React from 'react'
-import ReactDOM from 'react-dom/client'
-import App from './App'
-import './index.css'  // Design System global
-// #endregion IMPORTS
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
 
-// #region MOUNT
-// Monta o app React no div#root do index.html
-// StrictMode ativa verificações extras em desenvolvimento
-ReactDOM.createRoot(document.getElementById('root')!).render(
+// Estilos globais
+import './index.css';
+
+// ⚠️ CRÍTICO: Leaflet CSS deve ser importado aqui (não dentro do componente)
+// Sem este import, o mapa renderiza sem tiles e pins ficam desposicionados
+import 'leaflet/dist/leaflet.css';
+
+ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
-)
-// #endregion MOUNT
+);
+
+// ============================================================
+// FIM: src/main.tsx
+// ============================================================
