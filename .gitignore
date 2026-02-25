@@ -1,0 +1,33 @@
+# ==========================================
+# [ARQUIVO] .gitignore v1.0
+# [DATA] 2026-02-25
+# [REQUER] package.json
+# ==========================================
+
+# #region SECRETS — NUNCA commitar
+.env
+.env.local
+.env.production
+*-adminsdk-*.json        # Service account keys
+# #endregion SECRETS
+
+# #region BUILD
+dist/
+dist-ssr/
+# #endregion BUILD
+
+# #region DEPS
+node_modules/
+functions/node_modules/
+# #endregion DEPS
+
+# #region CACHE
+.vite/
+*.local
+.DS_Store
+# #endregion CACHE
+
+# #region FIREBASE
+.firebase/
+firebase-debug.log
+# #endregion FIREBASE
