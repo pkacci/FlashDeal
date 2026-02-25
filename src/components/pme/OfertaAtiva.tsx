@@ -71,7 +71,7 @@ const OfertaAtiva: React.FC<OfertaAtivaProps> = ({
     oferta.quantidadeDisponivel
   );
 
-  const vendidas = oferta.quantidadeTotal - oferta.quantidadeDisponivel;
+  // vendidas calculado inline no JSX para evitar variável órfã
   const expirada = tempoRestante === 'Expirada';
 
   return (
@@ -104,7 +104,7 @@ const OfertaAtiva: React.FC<OfertaAtivaProps> = ({
       <div className="mb-2">
         <div className="flex justify-between text-xs text-neutral-500 mb-1">
           <span>
-            {vendidas}/{oferta.quantidadeTotal} vendidas
+            {oferta.quantidadeTotal - oferta.quantidadeDisponivel}/{oferta.quantidadeTotal} vendidas
           </span>
           <span>{oferta.quantidadeDisponivel} restantes</span>
         </div>
