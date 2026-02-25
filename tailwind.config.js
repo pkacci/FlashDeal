@@ -1,160 +1,103 @@
-// ==========================================
-// [ARQUIVO] tailwind.config.js v1.0
-// [DATA] 2026-02-25
-// [REQUER] postcss.config.js
-// ==========================================
+// ============================================================
+// INÍCIO: tailwind.config.js
+// Versão: 1.0.0 | Data: 2026-02-25
+// Descrição: Design tokens do FlashDeal
+//            — primary: laranja (#FF6B00) — cor principal da marca
+//            — success: verde — confirmações
+//            — neutral: cinzas — textos e fundos
+//            — Fonte: Inter (system fallback)
+//            — Animações: bounce para indicador de digitação IA
+// ============================================================
 
 /** @type {import('tailwindcss').Config} */
 export default {
-  // #region CONTENT
-  // Tailwind varre estes arquivos para gerar só
-  // as classes CSS usadas (bundle mínimo)
   content: [
     './index.html',
     './src/**/*.{js,ts,jsx,tsx}',
   ],
-  // #endregion CONTENT
-
   theme: {
     extend: {
-
-      // #region COLORS — Design System FlashDeal
       colors: {
-        // Laranja principal — urgência, energia, CTA
+        // Cor principal da marca FlashDeal
         primary: {
-          50:  '#FFF3E0',
-          100: '#FFE0B2',
-          400: '#FFA726',
-          500: '#FF6B00',  // CTA principal
-          600: '#E65100',  // Hover
-          700: '#BF360C',  // Pressed
+          50:  '#fff7ed',
+          100: '#ffedd5',
+          200: '#fed7aa',
+          300: '#fdba74',
+          400: '#fb923c',
+          500: '#FF6B00', // ← cor principal
+          600: '#ea580c',
+          700: '#c2410c',
+          800: '#9a3412',
+          900: '#7c2d12',
         },
-        // Azul escuro — confiança, fundo premium
-        secondary: {
-          500: '#1A1A2E',  // Fundo escuro
-          600: '#16213E',  // Cards escuros
-          700: '#0F3460',  // Destaques
-        },
-        // Verde Pix — confirmação, sucesso
+        // Confirmações, voucher válido, sucesso
         success: {
-          50:  '#E8F5E9',
-          500: '#00C853',  // Pix confirmado
-          600: '#00A846',  // Hover
+          50:  '#f0fdf4',
+          100: '#dcfce7',
+          300: '#86efac',
+          500: '#22c55e',
+          700: '#15803d',
         },
-        // Vermelho — erro, cancelamento
-        danger: {
-          50:  '#FFEBEE',
-          500: '#FF3B30',
-          600: '#D32F2F',
-        },
-        // Amarelo — atenção, timer expirando
-        warning: {
-          50:  '#FFFDE7',
-          500: '#FFB300',
-          600: '#F57F17',
-        },
-        // Neutros — textos, bordas, fundos
+        // Neutros — textos, fundos, bordas
         neutral: {
-          50:  '#FAFAFA',  // Fundo geral
-          100: '#F5F5F5',  // Cards
-          200: '#EEEEEE',  // Divisores
-          300: '#E0E0E0',  // Bordas
-          500: '#9E9E9E',  // Texto secundário
-          700: '#616161',  // Texto médio
-          900: '#212121',  // Texto principal
+          50:  '#fafafa',
+          100: '#f5f5f5',
+          200: '#e5e5e5',
+          300: '#d4d4d4',
+          400: '#a3a3a3',
+          500: '#737373',
+          600: '#525252',
+          700: '#404040',
+          800: '#262626',
+          900: '#171717',
         },
       },
-      // #endregion COLORS
 
-      // #region TYPOGRAPHY
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'], // Fonte principal
+        // Inter com fallbacks de sistema — zero download obrigatório
+        sans: [
+          'Inter',
+          'ui-sans-serif',
+          'system-ui',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'Segoe UI',
+          'sans-serif',
+        ],
       },
-      fontSize: {
-        'xs':   ['12px', { lineHeight: '16px' }],
-        'sm':   ['14px', { lineHeight: '20px' }],
-        'base': ['16px', { lineHeight: '24px' }],
-        'lg':   ['18px', { lineHeight: '28px' }],
-        'xl':   ['20px', { lineHeight: '28px' }],
-        '2xl':  ['24px', { lineHeight: '32px' }],
-        '3xl':  ['30px', { lineHeight: '36px' }],
-        '4xl':  ['36px', { lineHeight: '40px' }],
-      },
-      fontWeight: {
-        normal:   '400',
-        medium:   '500',
-        semibold: '600',
-        bold:     '700',
-        extrabold:'800',
-      },
-      // #endregion TYPOGRAPHY
 
-      // #region SPACING — Sistema 4px
-      spacing: {
-        '0.5': '2px',
-        '1':   '4px',
-        '2':   '8px',
-        '3':   '12px',
-        '4':   '16px',
-        '5':   '20px',
-        '6':   '24px',
-        '8':   '32px',
-        '10':  '40px',
-        '12':  '48px',
-        '16':  '64px',
-        '20':  '80px',
-      },
-      // #endregion SPACING
-
-      // #region RADIUS — Bordas arredondadas modernas
       borderRadius: {
-        'sm':  '6px',
-        'md':  '12px',   // Cards padrão
-        'lg':  '16px',   // Cards grandes
-        'xl':  '20px',   // Modais
-        '2xl': '24px',   // Botões CTA
-        'full':'9999px', // Pills, badges
+        'xl':  '0.75rem',
+        '2xl': '1rem',
+        '3xl': '1.5rem',
       },
-      // #endregion RADIUS
 
-      // #region SHADOWS — Elevação suave
       boxShadow: {
-        'sm':  '0 1px 3px rgba(0,0,0,0.08)',
-        'md':  '0 4px 12px rgba(0,0,0,0.10)',  // Cards
-        'lg':  '0 8px 24px rgba(0,0,0,0.12)',  // Modais
-        'xl':  '0 16px 40px rgba(0,0,0,0.16)', // Bottom sheets
-        // Sombra laranja — botão CTA principal
-        'primary': '0 4px 16px rgba(255,107,0,0.35)',
-        // Sombra verde — confirmação Pix
-        'success': '0 4px 16px rgba(0,200,83,0.30)',
+        // Sombra suave para cards no mobile
+        'card': '0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04)',
+        'card-hover': '0 4px 6px rgba(0,0,0,0.07), 0 2px 4px rgba(0,0,0,0.06)',
       },
-      // #endregion SHADOWS
 
-      // #region ANIMATION — Micro-interações
       animation: {
-        'pulse-fast': 'pulse 1s cubic-bezier(0.4,0,0.6,1) infinite', // Timer urgente
-        'fade-in':    'fadeIn 0.2s ease-out',
-        'slide-up':   'slideUp 0.3s ease-out',                        // Bottom sheet
-        'bounce-in':  'bounceIn 0.4s ease-out',                       // Voucher confirmado
+        // Indicador de digitação da IA (3 pontos pulsando)
+        'bounce': 'bounce 1s infinite',
       },
-      keyframes: {
-        fadeIn: {
-          '0%':   { opacity: '0' },
-          '100%': { opacity: '1' },
-        },
-        slideUp: {
-          '0%':   { transform: 'translateY(20px)', opacity: '0' },
-          '100%': { transform: 'translateY(0)',    opacity: '1' },
-        },
-        bounceIn: {
-          '0%':   { transform: 'scale(0.8)', opacity: '0' },
-          '60%':  { transform: 'scale(1.05)' },
-          '100%': { transform: 'scale(1)',   opacity: '1' },
-        },
-      },
-      // #endregion ANIMATION
 
+      // Altura da bottom navigation — usada como padding-bottom nas pages
+      spacing: {
+        'nav': '4.5rem', // 72px — altura da BottomNav
+      },
     },
   },
-  plugins: [],
-}
+
+  plugins: [
+    // Plugin para esconder scrollbar (FiltroCategoria chips)
+    // Instalar: npm install -D tailwind-scrollbar-hide
+    require('tailwind-scrollbar-hide'),
+  ],
+};
+
+// ============================================================
+// FIM: tailwind.config.js
+// ============================================================
