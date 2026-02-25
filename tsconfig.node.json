@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    /* ==========================================
+       [ARQUIVO] tsconfig.node.json v1.0
+       [DATA] 2026-02-25
+       [REQUER] tsconfig.json, vite.config.ts
+       ========================================== */
+
+    // #region TARGET
+    "composite": true,                   // Permite referência do tsconfig.json
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",       // Vite resolve os módulos
+    // #endregion TARGET
+
+    // #region STRICT
+    "allowSyntheticDefaultImports": true,
+    "strict": true
+    // #endregion STRICT
+  },
+  "include": ["vite.config.ts"]          // Só compila o vite.config.ts
+}
+
