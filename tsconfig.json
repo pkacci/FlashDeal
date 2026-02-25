@@ -1,0 +1,42 @@
+{
+  "compilerOptions": {
+    /* ==========================================
+       [ARQUIVO] tsconfig.json v1.0
+       [DATA] 2026-02-25
+       [REQUER] package.json
+       ========================================== */
+
+    // #region TARGET
+    "target": "ES2020",                  // JS moderno compatível com Firebase
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",       // Vite resolve os módulos
+    "allowImportingTsExtensions": true,
+    // #endregion TARGET
+
+    // #region STRICT
+    "strict": true,                      // Tipagem rigorosa — evita bugs
+    "noUnusedLocals": true,              // Avisa variáveis não usadas
+    "noUnusedParameters": true,          // Avisa parâmetros não usados
+    "noFallthroughCasesInSwitch": true,
+    // #endregion STRICT
+
+    // #region BUILD
+    "skipLibCheck": true,                // Ignora erros em libs externas
+    "noEmit": true,                      // Vite faz o build, não o tsc
+    "isolatedModules": true,
+    "resolveJsonModule": true,           // Permite importar .json
+    "jsx": "react-jsx",                  // React 18 — não precisa importar React
+    // #endregion BUILD
+
+    // #region ALIAS
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]                   // Alias '@/' aponta para src/
+    }
+    // #endregion ALIAS
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
