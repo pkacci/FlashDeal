@@ -87,6 +87,7 @@ const OnboardingIA: React.FC = () => {
   const [fallbackCNPJ, setFallbackCNPJ] = useState('');
   const [fallbackCategoria, setFallbackCategoria] = useState('');
   const [validandoCNPJ, setValidandoCNPJ] = useState(false);
+  const [alertaEndereco, setAlertaEndereco] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -191,6 +192,18 @@ const OnboardingIA: React.FC = () => {
           cnpj: cnpjLimpo,
           endereco: result.data.dados,
         }));
+
+        // Antifraude: cruzamento endereço Receita Federal vs endereço digitado
+        const dadosReceita = result.data.dados as Record<string, string>;
+        const cidadeReceita = (dadosReceita.cidade ?? '').toLowerCase().trim();
+        const cidadeDigitada = (dadosExtraidos.endereco?.cidade ?? '').toLowerCase().trim();
+        if (cidadeDigitada && cidadeReceita && cidadeDigitada !== cidadeReceita) {
+          setAlertaEndereco(
+            `⚠️ O CNPJ está registrado em ${dadosReceita.cidade}/${dadosReceita.estado} na Receita Federal, mas você informou ${dadosExtraidos.endereco?.cidade}. Confirme se o endereço está correto.`
+          );
+        } else {
+          setAlertaEndereco(null);
+        }
       }
 
       return true;
@@ -385,6 +398,11 @@ const OnboardingIA: React.FC = () => {
                   ${erroCNPJ ? 'border-red-400' : 'border-neutral-300'}`}
               />
               {erroCNPJ && <p className="text-xs text-red-500">{erroCNPJ}</p>}
+              {alertaEndereco && (
+                <div className="mt-2 p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-xs text-yellow-800">
+                  {alertaEndereco}
+                </div>
+              )}
               <button
                 onClick={handleAvancarFallback}
                 disabled={validandoCNPJ || fallbackCNPJ.replace(/\D/g, '').length < 14}
