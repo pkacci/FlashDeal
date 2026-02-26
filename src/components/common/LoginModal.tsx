@@ -1,24 +1,24 @@
 // ============================================================
 // INÍCIO: src/components/common/LoginModal.tsx
-// Versão: 1.0.0 | Criado: componente faltante
-// Descrição: Modal de login tardio (Late Auth)
-//            Aparece quando consumidor tenta garantir oferta sem login
+// Versão: 1.1.0 | Correção: onSucesso adicionado às props
 // ============================================================
 
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
-interface LoginModalProps {
+export interface LoginModalProps {
   ofertaId: string;
   onFechar: () => void;
+  onSucesso?: () => void;  // ← adicionado
 }
 
-const LoginModal: React.FC<LoginModalProps> = ({ ofertaId, onFechar }) => {
+const LoginModal: React.FC<LoginModalProps> = ({ ofertaId, onFechar, onSucesso }) => {
   const navigate = useNavigate();
 
   const handleLogin = () => {
-    // Salva ofertaId para retornar após login
-    navigate('/login', { state: { ofertaId, from: `/oferta/${ofertaId}` } });
+    navigate('/login', {
+      state: { ofertaId, from: `/oferta/${ofertaId}`, onSucesso: true },
+    });
   };
 
   return (
@@ -30,16 +30,10 @@ const LoginModal: React.FC<LoginModalProps> = ({ ofertaId, onFechar }) => {
         <p className="text-sm text-neutral-500 mb-6">
           Faça login para garantir esta oferta com Pix.
         </p>
-        <button
-          onClick={handleLogin}
-          className="btn-primary w-full mb-3"
-        >
+        <button onClick={handleLogin} className="btn-primary w-full mb-3">
           Entrar / Cadastrar
         </button>
-        <button
-          onClick={onFechar}
-          className="w-full text-sm text-neutral-400 py-2"
-        >
+        <button onClick={onFechar} className="w-full text-sm text-neutral-400 py-2">
           Cancelar
         </button>
       </div>
