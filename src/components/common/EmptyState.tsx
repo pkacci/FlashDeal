@@ -1,58 +1,53 @@
-// ==========================================
-// [ARQUIVO] EmptyState.tsx v1.1
-// [DATA] 2026-02-25
-// [REQUER] index.css, tailwind.config.js
-// ==========================================
+// ============================================================
+// INÍCIO: src/components/common/EmptyState.tsx
+// Versão: 1.1.0 | Correção: icone (PT) como alias de icon
+// ============================================================
 
-// #region TYPES
-interface EmptyStateProps {
-  icon: string           // Emoji ou ícone
-  title: string          // Título principal
-  subtitle?: string      // Descrição opcional
-  ctaLabel?: string      // Texto do botão
-  ctaAction?: () => void // Ação do botão
+import React from 'react';
+
+export interface EmptyStateProps {
+  icon?: string;
+  icone?: string;       // ← alias PT para compatibilidade
+  titulo?: string;
+  title?: string;       // ← alias EN
+  subtitulo?: string;
+  subtitle?: string;    // ← alias EN
+  ctaLabel?: string;
+  onCta?: () => void;
 }
-// #endregion TYPES
 
-// #region COMPONENT
-export default function EmptyState({
-  icon,
-  title,
-  subtitle,
+const EmptyState: React.FC<EmptyStateProps> = ({
+  icon, icone,
+  titulo, title,
+  subtitulo, subtitle,
   ctaLabel,
-  ctaAction
-}: EmptyStateProps) {
+  onCta,
+}) => {
+  const displayIcon    = icone ?? icon ?? '📭';
+  const displayTitulo  = titulo ?? title ?? 'Nada por aqui';
+  const displaySubtitulo = subtitulo ?? subtitle;
+
   return (
-    // #region LAYOUT
-    <div className="flex flex-col items-center justify-center
-                    py-16 px-6 text-center animate-fade-in">
-
-      {/* Ícone grande centralizado */}
-      <div className="text-5xl mb-4">{icon}</div>
-
-      {/* Título */}
-      <h3 className="text-lg font-semibold text-neutral-900 mb-2">
-        {title}
-      </h3>
-
-      {/* Subtítulo opcional */}
-      {subtitle && (
-        <p className="text-sm text-neutral-500 mb-6 max-w-xs">
-          {subtitle}
-        </p>
+    <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+      <p className="text-5xl mb-4">{displayIcon}</p>
+      <p className="font-semibold text-neutral-700 text-lg mb-2">{displayTitulo}</p>
+      {displaySubtitulo && (
+        <p className="text-sm text-neutral-400 mb-6">{displaySubtitulo}</p>
       )}
-
-      {/* CTA opcional — usa btn-primary do Design System */}
-      {ctaLabel && ctaAction && (
+      {ctaLabel && onCta && (
         <button
-          onClick={ctaAction}
-          className="btn-primary max-w-xs"
+          onClick={onCta}
+          className="btn-primary px-6 py-2 text-sm"
         >
           {ctaLabel}
         </button>
       )}
     </div>
-    // #endregion LAYOUT
-  )
-}
-// #endregion COMPONENT
+  );
+};
+
+export default EmptyState;
+
+// ============================================================
+// FIM: src/components/common/EmptyState.tsx
+// ============================================================
