@@ -1,21 +1,10 @@
 // ============================================================
 // INÍCIO: src/pages/DashboardPME.tsx
-// Versão: 1.0.0 | Data: 2026-02-25
-// Deps: React, react-router-dom, firebase/firestore,
-//       hooks/useAuth,
-//       components/pme/DashboardStats,
-//       components/pme/OfertaAtiva,
-//       components/pme/DicaMotor,
-//       components/common/EmptyState
-// Descrição: Painel principal da PME
-//            — Métricas do dia em tempo real (onSnapshot)
-//            — Lista de ofertas ativas
-//            — Dica do Motor (Smart Template ou personalizada)
-//            — Estado vazio com CTA para criar primeira oferta
-//            — Indicador de limite do plano gratuito
+// Versão: 1.1.0 | Data: 2026-02-26
+// Adição v1.1: Banner de lembrete de foto quando imagemUrl == null
 // ============================================================
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   collection,
@@ -30,6 +19,7 @@ import {
 import { db } from '../services/firebase';
 import { Oferta } from '../types/oferta';
 import useAuth from '../hooks/useAuth';
+import useImageUpload from '../hooks/useImageUpload';
 import DashboardStats from '../components/pme/DashboardStats';
 import OfertaAtiva from '../components/pme/OfertaAtiva';
 import DicaMotor, { gerarDicaTemplate, Dica } from '../components/pme/DicaMotor';
@@ -46,7 +36,6 @@ interface MetricasDia {
 // #endregion
 
 // #region Helpers
-/** Verifica se um Timestamp é do dia de hoje */
 const isHoje = (ts: Timestamp): boolean => {
   const d = ts.toDate();
   const hoje = new Date();
@@ -57,7 +46,6 @@ const isHoje = (ts: Timestamp): boolean => {
   );
 };
 
-/** Verifica se um Timestamp é desta semana (últimos 7 dias) */
 const isSemana = (ts: Timestamp): boolean => {
   const diff = Date.now() - ts.toDate().getTime();
   return diff <= 7 * 24 * 60 * 60 * 1000;
@@ -68,6 +56,8 @@ const isSemana = (ts: Timestamp): boolean => {
 const DashboardPME: React.FC = () => {
   const navigate = useNavigate();
   const { usuario, pmeData } = useAuth();
+  const { upload, status: uploadStatus } = useImageUpload();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [ofertas, setOfertas] = useState<Oferta[]>([]);
   const [metricas, setMetricas] = useState<MetricasDia>({
@@ -78,11 +68,13 @@ const DashboardPME: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
   const [dica, setDica] = useState<Dica | null>(null);
+  const [bannerFotoDismissed, setBannerFotoDismissed] = useState(false);
+  const [uploadandoFoto, setUploadandoFoto] = useState(false);
+  const [fotoSalva, setFotoSalva] = useState(false);
 
-  // #region Listener de ofertas ativas em tempo real
+  // #region Listener de ofertas ativas
   useEffect(() => {
     if (!usuario?.uid) return;
-
     const q = query(
       collection(db, 'ofertas'),
       where('pmeId', '==', usuario.uid),
@@ -90,13 +82,11 @@ const DashboardPME: React.FC = () => {
       where('dataFim', '>', Timestamp.now()),
       orderBy('dataFim', 'asc')
     );
-
     const unsub = onSnapshot(q, (snap) => {
       const lista = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Oferta));
       setOfertas(lista);
       setLoading(false);
     });
-
     return () => unsub();
   }, [usuario?.uid]);
   // #endregion
@@ -104,24 +94,20 @@ const DashboardPME: React.FC = () => {
   // #region Listener de reservas para métricas
   useEffect(() => {
     if (!usuario?.uid) return;
-
     const q = query(
       collection(db, 'reservas'),
       where('pmeId', '==', usuario.uid),
       where('status', 'in', ['confirmado', 'usado'])
     );
-
     const unsub = onSnapshot(q, (snap) => {
       let vendidoHoje = 0;
       let vendidoSemana = 0;
       let reservasAtivas = 0;
       let reservasHoje = 0;
-
       snap.forEach((d) => {
         const reserva = d.data();
         const confirmadoEm = reserva.dataConfirmacao as Timestamp | null;
         if (!confirmadoEm) return;
-
         if (isSemana(confirmadoEm)) vendidoSemana += reserva.valorPago ?? 0;
         if (isHoje(confirmadoEm)) {
           vendidoHoje += reserva.valorPago ?? 0;
@@ -129,15 +115,13 @@ const DashboardPME: React.FC = () => {
         }
         if (reserva.status === 'confirmado') reservasAtivas += 1;
       });
-
       setMetricas({ vendidoHoje, vendidoSemana, reservasAtivas, reservasHoje });
     });
-
     return () => unsub();
   }, [usuario?.uid]);
   // #endregion
 
-  // #region Gera dica do Motor ao montar
+  // #region Dica do Motor
   useEffect(() => {
     if (!pmeData?.categoria) return;
     const agora = new Date();
@@ -150,7 +134,7 @@ const DashboardPME: React.FC = () => {
   }, [pmeData?.categoria]);
   // #endregion
 
-  // #region Encerrar oferta antecipadamente
+  // #region Encerrar oferta
   const handleEncerrar = useCallback(async (ofertaId: string) => {
     try {
       await updateDoc(doc(db, 'ofertas', ofertaId), {
@@ -163,8 +147,27 @@ const DashboardPME: React.FC = () => {
   }, []);
   // #endregion
 
-  // Calcula vendido por oferta com base nas reservas (simplificado)
-  // Em produção, manter campo denormalizado na oferta
+  // #region Upload de foto via banner
+  const handleUploadFoto = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !usuario?.uid) return;
+    setUploadandoFoto(true);
+    try {
+      const url = await upload(file, `pmes/${usuario.uid}/fachada`);
+      if (url) {
+        await updateDoc(doc(db, 'pmes', usuario.uid), { imagemUrl: url });
+        setFotoSalva(true);
+        // Esconde banner após 2s
+        setTimeout(() => setBannerFotoDismissed(true), 2000);
+      }
+    } catch {
+      // Falha silenciosa — usuário pode tentar novamente
+    } finally {
+      setUploadandoFoto(false);
+    }
+  }, [upload, usuario?.uid]);
+  // #endregion
+
   const getVendidoPorOferta = (oferta: Oferta): number => {
     const vendidas = oferta.quantidadeTotal - oferta.quantidadeDisponivel;
     return vendidas * oferta.valorOferta;
@@ -174,6 +177,9 @@ const DashboardPME: React.FC = () => {
   const ofertasCriadas = pmeData?.ofertasCriadas ?? 0;
   const limiteOfertas = pmeData?.limiteOfertas ?? 10;
   const percLimite = Math.round((ofertasCriadas / limiteOfertas) * 100);
+
+  // Mostra banner se PME não tem foto e não dispensou
+  const semFoto = !pmeData?.imagemUrl && !bannerFotoDismissed;
 
   if (loading) return <LoadingSpinner fullscreen />;
 
@@ -195,6 +201,64 @@ const DashboardPME: React.FC = () => {
       </header>
 
       <main className="px-4 pt-4 space-y-4">
+
+        {/* ── BANNER DE FOTO ── */}
+        {semFoto && (
+          <div className="rounded-2xl overflow-hidden border-2 border-dashed border-primary-300 bg-primary-50">
+            {fotoSalva ? (
+              // Estado de sucesso
+              <div className="flex items-center gap-3 p-4">
+                <div className="w-9 h-9 bg-success-500 rounded-full flex items-center justify-center shrink-0">
+                  <span className="text-white text-sm font-bold">✓</span>
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-success-700">Foto adicionada!</p>
+                  <p className="text-xs text-success-600">Seu negócio aparece com destaque agora.</p>
+                </div>
+              </div>
+            ) : (
+              // Estado padrão
+              <div className="p-4">
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="flex items-start gap-3">
+                    <span className="text-2xl">📷</span>
+                    <div>
+                      <p className="text-sm font-bold text-primary-700">Adicione uma foto da fachada</p>
+                      <p className="text-xs text-primary-600 mt-0.5">
+                        Negócios com foto recebem <strong>3x mais cliques</strong>
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setBannerFotoDismissed(true)}
+                    className="text-neutral-400 text-lg leading-none shrink-0 mt-0.5"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={handleUploadFoto}
+                />
+
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadandoFoto || uploadStatus === 'enviando' || uploadStatus === 'comprimindo'}
+                  className="w-full py-2.5 bg-primary-500 text-white text-sm font-bold rounded-xl active:scale-95 transition-all disabled:opacity-60"
+                >
+                  {uploadandoFoto || uploadStatus === 'enviando' || uploadStatus === 'comprimindo'
+                    ? '⚙️ Enviando...'
+                    : '📷 Adicionar foto agora'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Métricas */}
         <DashboardStats
@@ -252,7 +316,6 @@ const DashboardPME: React.FC = () => {
           <p className="text-sm font-semibold text-neutral-700 mb-3">
             Ofertas ativas ({ofertas.length})
           </p>
-
           {ofertas.length === 0 ? (
             <EmptyState
               icone="🚀"
