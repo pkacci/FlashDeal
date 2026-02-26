@@ -16,6 +16,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getFunctions, httpsCallable } from 'firebase/functions';
+import { buscarCNPJ } from '../utils/validators';
 import { doc, updateDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import useAuth from '../hooks/useAuth';
@@ -174,32 +175,38 @@ const OnboardingIA: React.FC = () => {
     setErroCNPJ(null);
 
     try {
-      const functions = getFunctions();
-      const fn = httpsCallable<{ cnpj: string }, { valido: boolean; dados?: Record<string, string> }>(
-        functions, 'validarCNPJ'
-      );
-      const result = await fn({ cnpj: cnpjLimpo });
+      // Opção A: client-side direto (evita bloqueio de IP de datacenter)
+      const result = await buscarCNPJ(cnpjLimpo);
 
-      if (!result.data.valido) {
-        setErroCNPJ('CNPJ não encontrado ou inativo.');
+      if (!result.valido) {
+        setErroCNPJ(result.erro ?? 'CNPJ não encontrado ou inativo.');
         return false;
       }
 
       // Preenche endereço automaticamente se disponível
-      if (result.data.dados) {
+      if (result.dados) {
+        const enderecoReceita = {
+          rua: result.dados.endereco.logradouro,
+          numero: result.dados.endereco.numero,
+          bairro: result.dados.endereco.bairro,
+          cidade: result.dados.endereco.municipio,
+          estado: result.dados.endereco.uf,
+          cep: result.dados.endereco.cep,
+        };
+
         setDadosExtraidos((prev) => ({
           ...prev,
           cnpj: cnpjLimpo,
-          endereco: result.data.dados,
+          nomeFantasia: prev.nomeFantasia || result.dados!.nomeFantasia,
+          endereco: enderecoReceita,
         }));
 
-        // Antifraude: cruzamento endereço Receita Federal vs endereço digitado
-        const dadosReceita = result.data.dados as Record<string, string>;
-        const cidadeReceita = (dadosReceita.cidade ?? '').toLowerCase().trim();
+        // Antifraude: cruzamento cidade Receita vs cidade digitada
+        const cidadeReceita = result.dados.endereco.municipio.toLowerCase().trim();
         const cidadeDigitada = (dadosExtraidos.endereco?.cidade ?? '').toLowerCase().trim();
         if (cidadeDigitada && cidadeReceita && cidadeDigitada !== cidadeReceita) {
           setAlertaEndereco(
-            `⚠️ O CNPJ está registrado em ${dadosReceita.cidade}/${dadosReceita.estado} na Receita Federal, mas você informou ${dadosExtraidos.endereco?.cidade}. Confirme se o endereço está correto.`
+            `⚠️ O CNPJ está registrado em ${result.dados.endereco.municipio}/${result.dados.endereco.uf} na Receita Federal, mas você informou ${dadosExtraidos.endereco?.cidade}. Confirme se o endereço está correto.`
           );
         } else {
           setAlertaEndereco(null);
@@ -209,11 +216,11 @@ const OnboardingIA: React.FC = () => {
       return true;
     } catch {
       setErroCNPJ('Não foi possível validar o CNPJ. Prossiga mesmo assim.');
-      return true; // Permite continuar mesmo sem validação
+      return true;
     } finally {
       setValidandoCNPJ(false);
     }
-  }, []);
+  }, [dadosExtraidos.endereco]);
   // #endregion
 
   // #region Upload de foto
