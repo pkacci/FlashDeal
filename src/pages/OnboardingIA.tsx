@@ -8,8 +8,9 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { buscarCNPJ, formatarCNPJ } from '../utils/validators';
-import { doc, setDoc, Timestamp } from 'firebase/firestore';
-import { db } from '../services/firebase';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+
+
 import useAuth from '../hooks/useAuth';
 import useImageUpload from '../hooks/useImageUpload';
 import LoadingSpinner from '../components/common/LoadingSpinner';
@@ -179,28 +180,23 @@ const OnboardingIA: React.FC = () => {
     if (!usuario?.uid) return;
     setSalvando(true);
     try {
-      await setDoc(doc(db, 'pmes', usuario.uid), {
-        uid: usuario.uid,
+      const functions = getFunctions();
+      const promover = httpsCallable(functions, 'promoverParaPME');
+      await promover({
         nomeFantasia: dadosExtraidos.nomeFantasia || fallbackNome,
         cnpj: dadosExtraidos.cnpj || fallbackCNPJ.replace(/\D/g, ''),
         categoria: dadosExtraidos.categoria || fallbackCategoria,
         endereco: dadosExtraidos.endereco ?? null,
         imagemUrl: imagemUrl ?? null,
-        plano: 'free',
-        limiteOfertas: 10,
-        ofertasCriadas: 0,
-        ativa: true,
-        verificada: false,
-        createdAt: Timestamp.now(),
-        updatedAt: Timestamp.now(),
       });
+      // Força refresh do token para pegar o novo claim role=pme
+      await usuario.getIdToken(true);
       navigate('/dashboard', { replace: true });
     } catch (err: any) {
-      console.error('Erro ao salvar PME:', err);
-      alert("Erro: " + (err?.message || JSON.stringify(err)));
+      alert('Erro: ' + (err?.message || JSON.stringify(err)));
       setSalvando(false);
     }
-  }, [usuario?.uid, dadosExtraidos, fallbackNome, fallbackCNPJ, fallbackCategoria, imagemUrl, navigate]);
+  }, [usuario, dadosExtraidos, fallbackNome, fallbackCNPJ, fallbackCategoria, imagemUrl, navigate]);
   // #endregion
 
   return (
