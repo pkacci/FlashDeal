@@ -37,24 +37,23 @@ const LoginPage: React.FC = () => {
 
   // #region Redirecionamento CORRIGIDO
   useEffect(() => {
-    // Só age se o usuário estiver logado e o AuthContext não estiver mais carregando
-    if (authLoading || !usuario) return;
+  if (authLoading || !usuario) return;
 
-    if (ofertaIdRetorno) {
-      // 1. Prioridade Late Auth (Voltar para a oferta que estava comprando)
-      navigate(`/oferta/${ofertaIdRetorno}`, { replace: true });
-    } else if (role === 'pme') {
-      // 2. Se já é PME confirmado, vai para o Dashboard
-      navigate('/dashboard', { replace: true });
-    } else if (rolePretendido === 'pme') {
-      // 3. INTENÇÃO: Se clicou em "Cadastrar Negócio", vai para o Onboarding
-      // Mesmo que a role ainda não tenha sido processada pela Cloud Function
-      navigate('/onboarding-ia', { replace: true });
-    } else {
-      // 4. Default: Consumidor comum vai para ofertas
-      navigate('/ofertas', { replace: true });
-    }
-  }, [usuario, role, authLoading, ofertaIdRetorno, rolePretendido, navigate]);
+  if (ofertaIdRetorno) {
+    // Late Auth: Prioridade para quem estava vendo uma oferta
+    navigate(`/oferta/${ofertaIdRetorno}`, { replace: true });
+  } else if (role === 'pme') {
+    // Se já é PME confirmado no banco, vai para o Dashboard
+    navigate('/dashboard', { replace: true });
+  } else if (rolePretendido === 'pme') {
+    // SEGUNDA PRIORIDADE: Se o usuário clicou em "Cadastrar Negócio", 
+    // manda para o Onboarding, mesmo que ainda seja 'consumidor' no Firebase.
+    navigate('/onboarding-ia', { replace: true });
+  } else {
+    // Fallback para consumidor comum
+    navigate('/ofertas', { replace: true });
+  }
+}, [usuario, role, authLoading, ofertaIdRetorno, rolePretendido, navigate]);
   // #endregion
 
   useEffect(() => {
