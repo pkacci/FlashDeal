@@ -62,7 +62,7 @@ const PERGUNTAS_FALLBACK: Record<Passo, { titulo: string; sub: string }> = {
 // #region Component
 const OnboardingIA: React.FC = () => {
   const navigate = useNavigate();
-  const { usuario } = useAuth();
+  const { usuario, refreshRole } = useAuth();
   const { upload, previewUrl, status: uploadStatus } = useImageUpload();
 
   const [passo, setPasso] = useState<Passo>(1);
@@ -190,7 +190,7 @@ const OnboardingIA: React.FC = () => {
         imagemUrl: imagemUrl ?? null,
       });
       // Força refresh do token para pegar o novo claim role=pme
-      await usuario.getIdToken(true);
+      await refreshRole();
       navigate('/dashboard', { replace: true });
     } catch (err: any) {
       alert('Erro: ' + (err?.message || JSON.stringify(err)));
