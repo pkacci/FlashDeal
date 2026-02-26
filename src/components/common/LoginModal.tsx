@@ -12,7 +12,7 @@ export interface LoginModalProps {
   onSucesso?: () => void;  // ← adicionado
 }
 
-const LoginModal: React.FC<LoginModalProps> = ({ ofertaId, onFechar, onSucesso }) => {
+const LoginModal: React.FC<LoginModalProps> = ({ ofertaId, onFechar }) => {
   const navigate = useNavigate();
 
   const handleLogin = () => {

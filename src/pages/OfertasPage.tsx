@@ -142,7 +142,7 @@ const OfertasPage: React.FC = () => {
 
       // Uma query por bound de geohash (geohashQueryBounds pode retornar múltiplos ranges)
       await Promise.all(
-        bounds.map(async ({ startHash, endHash }) => {
+        bounds.map(async ([startHash, endHash]) => {
           const q = query(
             collection(db, 'ofertas'),
             where('ativa', '==', true),
