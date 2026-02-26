@@ -43,36 +43,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (user) {
-        setUsuario(user);
-
-        const idTokenResult = await user.getIdTokenResult();
-        const claimRole = idTokenResult.claims.role as 'pme' | 'consumidor' | undefined;
-
-        if (claimRole) {
-          setRole(claimRole);
-          // Se é PME, carrega dados extras
-          if (claimRole === 'pme') {
-            const snap = await getDoc(doc(db, 'pmes', user.uid));
-            if (snap.exists()) setPmeData(snap.data() as PMEData);
-          }
-        } else {
-          const pmeSnap = await getDoc(doc(db, 'pmes', user.uid));
-          if (pmeSnap.exists()) {
-            setRole('pme');
-            setPmeData(pmeSnap.data() as PMEData);
-          } else {
+      try {
+        if (user) {
+          setUsuario(user);
+          try {
+            const idTokenResult = await user.getIdTokenResult();
+            const claimRole = idTokenResult.claims.role as 'pme' | 'consumidor' | undefined;
+            if (claimRole) {
+              setRole(claimRole);
+              if (claimRole === 'pme') {
+                try {
+                  const snap = await getDoc(doc(db, 'pmes', user.uid));
+                  if (snap.exists()) setPmeData(snap.data() as PMEData);
+                } catch { /* ignora erro de permissão */ }
+              }
+            } else {
+              try {
+                const pmeSnap = await getDoc(doc(db, 'pmes', user.uid));
+                if (pmeSnap.exists()) {
+                  setRole('pme');
+                  setPmeData(pmeSnap.data() as PMEData);
+                } else {
+                  setRole('consumidor');
+                }
+              } catch {
+                setRole('consumidor');
+              }
+            }
+          } catch {
             setRole('consumidor');
           }
+        } else {
+          setUsuario(null);
+          setRole(null);
+          setPmeData(null);
         }
-      } else {
-        setUsuario(null);
-        setRole(null);
-        setPmeData(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     });
-
     return unsubscribe;
   }, []);
 
