@@ -1,37 +1,40 @@
-// ==========================================
-// [ARQUIVO] ProtectedRoute.tsx v1.1
-// [DATA] 2026-02-25
-// [REQUER] AuthContext.tsx, react-router-dom
-// ==========================================
+// ============================================================
+// INÍCIO: src/components/common/ProtectedRoute.tsx
+// Versão: 1.1.0 | Correção: allowedRoles adicionado ao tipo
+// ============================================================
 
-// #region IMPORTS
-import { Navigate, useLocation } from 'react-router-dom'
-import { useAuth } from '@/contexts/AuthContext'
-import type { UserRole } from '@/types/consumidor'
-// #endregion IMPORTS
+import React from 'react';
+import { Navigate, useLocation } from 'react-router-dom';
+import { useAuth } from '../../contexts/AuthContext';
+import LoadingSpinner from './LoadingSpinner';
 
-// #region TYPES
-interface ProtectedRouteProps {
-  children: React.ReactNode
-  role?: UserRole  // Omitido = apenas autenticação
+export interface ProtectedRouteProps {
+  children: React.ReactNode;
+  allowedRoles?: ('pme' | 'consumidor')[];
 }
-// #endregion TYPES
 
-// #region COMPONENT
-export default function ProtectedRoute({ children, role }: ProtectedRouteProps) {
-  const { user } = useAuth()
-  const location = useLocation()
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
+  const { usuario, role, loading } = useAuth();
+  const location = useLocation();
 
-  // Não autenticado → login, preserva URL atual
-  if (!user) {
-    return <Navigate to="/login" state={{ from: location }} replace />
+  if (loading) return <LoadingSpinner fullScreen />;
+
+  // Não autenticado → redireciona para login preservando destino
+  if (!usuario) {
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Role incorreto → home
-  if (role && user.role !== role) {
-    return <Navigate to="/" replace />
+  // Role não permitida → redireciona para home da role correta
+  if (allowedRoles && role && !allowedRoles.includes(role)) {
+    const homeByRole = role === 'pme' ? '/dashboard' : '/ofertas';
+    return <Navigate to={homeByRole} replace />;
   }
 
-  return <>{children}</>
-}
-// #endregion COMPONENT
+  return <>{children}</>;
+};
+
+export default ProtectedRoute;
+
+// ============================================================
+// FIM: src/components/common/ProtectedRoute.tsx
+// ============================================================
