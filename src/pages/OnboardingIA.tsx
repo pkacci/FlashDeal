@@ -16,7 +16,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getFunctions, httpsCallable } from 'firebase/functions';
-import { Timestamp } from 'firebase/firestore';
+import { doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { db } from '../services/firebase';
 import useAuth from '../hooks/useAuth';
 import useImageUpload from '../hooks/useImageUpload';
 import LoadingSpinner from '../components/common/LoadingSpinner';
@@ -233,18 +234,15 @@ const OnboardingIA: React.FC = () => {
   }, [passo, fallbackNome, fallbackCNPJ, fallbackCategoria, handleValidarCNPJ]);
   // #endregion
 
-// #region Salvar PME no Firestore
+  // #region Salvar PME no Firestore
   const handleConcluir = useCallback(async () => {
     if (!usuario?.uid) return;
     setSalvando(true);
 
     try {
-      const functions = getFunctions();
-      const promover = httpsCallable(functions, 'promoverParaPME');
-
-      await promover({
+      await updateDoc(doc(db, 'pmes', usuario.uid), {
         nomeFantasia: dadosExtraidos.nomeFantasia ?? fallbackNome,
-        cnpj: (dadosExtraidos.cnpj ?? fallbackCNPJ).replace(/\D/g, ''),
+        cnpj: dadosExtraidos.cnpj ?? fallbackCNPJ.replace(/\D/g, ''),
         categoria: dadosExtraidos.categoria ?? fallbackCategoria,
         endereco: dadosExtraidos.endereco ?? {},
         telefone: dadosExtraidos.telefone ?? null,
@@ -252,15 +250,11 @@ const OnboardingIA: React.FC = () => {
         status: 'ativo',
         updatedAt: Timestamp.now(),
       });
-
-      // Força refresh do token para pegar novo custom claim (role='pme')
-      await usuario.getIdToken(true);
-
       navigate('/dashboard', { replace: true });
     } catch {
       setSalvando(false);
     }
-  }, [usuario, dadosExtraidos, fallbackNome, fallbackCNPJ, fallbackCategoria, imagemUrl, navigate]);
+  }, [usuario?.uid, dadosExtraidos, fallbackNome, fallbackCNPJ, fallbackCategoria, imagemUrl, navigate]);
   // #endregion
 
   const progresso = Math.round(((passo - 1) / 4) * 100);
