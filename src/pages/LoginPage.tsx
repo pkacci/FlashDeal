@@ -55,12 +55,15 @@ const LoginPage: React.FC = () => {
     if (ofertaIdRetorno) {
       // Late Auth: volta para a oferta que estava vendo
       navigate(`/oferta/${ofertaIdRetorno}`, { replace: true });
+    } else if (rolePretendido === 'pme' && role !== 'pme') {
+      // Usuário quer ser PME mas ainda é consumidor → onboarding
+      navigate('/onboarding-ia', { replace: true });
     } else if (role === 'pme') {
       navigate('/dashboard', { replace: true });
     } else {
       navigate('/ofertas', { replace: true });
     }
-  }, [usuario, role, authLoading, ofertaIdRetorno, navigate]);
+  }, [usuario, role, authLoading, ofertaIdRetorno, rolePretendido, navigate]);
   // #endregion
 
   // #region Timer de reenvio de SMS
