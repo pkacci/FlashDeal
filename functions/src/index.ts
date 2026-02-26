@@ -358,7 +358,6 @@ export const gerarPix = functions.https.onCall(async (data, context) => {
   // #region Chama Gateway Pix (server-side only)
   try {
     const pixKey = functions.config().pix?.gateway_key;
-    const pixWebhookUrl = functions.config().pix?.webhook_url ??
       `https://us-central1-${process.env.GCLOUD_PROJECT}.cloudfunctions.net/webhookPix`;
 
     // Exemplo de integração Asaas (adaptar para Pagar.me se necessário)
