@@ -93,7 +93,7 @@ const App: React.FC = () => (
               ROTAS PME (role='pme')
           ═══════════════════════════════════════ */}
           <Route path="/onboarding-ia" element={
-            <ProtectedRoute allowedRoles={['pme']}>
+            <ProtectedRoute allowedRoles={['pme', 'consumidor']}>
               <OnboardingIA />
             </ProtectedRoute>
           } />
