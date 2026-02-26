@@ -1,7 +1,8 @@
 // ============================================================
 // INÍCIO: src/pages/OnboardingIA.tsx
-// Versão: 2.0.1 | Data: 2026-02-26
-// Fix: removido modo, handleEnviarMensagem e progresso não usados
+// Versão: 2.1.0 | Data: 2026-02-26
+// Adições v2.1: 11 categorias, detecção automática por CNAE,
+//               categoria pré-selecionada com confirmação visual
 // ============================================================
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
@@ -14,7 +15,6 @@ import useImageUpload from '../hooks/useImageUpload';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
 // #region Types
-
 interface DadosExtraidos {
   nomeFantasia?: string;
   cnpj?: string;
@@ -26,11 +26,17 @@ interface DadosExtraidos {
 type Passo = 1 | 2 | 3 | 4 | 5;
 
 const CATEGORIAS = [
-  { valor: 'restaurante', label: '🍕 Restaurante' },
-  { valor: 'beleza',      label: '💇 Beleza'      },
-  { valor: 'fitness',     label: '💪 Fitness'     },
-  { valor: 'servicos',    label: '🛠️ Serviços'    },
-  { valor: 'varejo',      label: '🛍️ Varejo'      },
+  { valor: 'restaurante',  label: '🍕 Restaurante'   },
+  { valor: 'supermercado', label: '🛒 Supermercado'   },
+  { valor: 'beleza',       label: '💇 Beleza'         },
+  { valor: 'fitness',      label: '💪 Fitness'        },
+  { valor: 'saude',        label: '🏥 Saúde'          },
+  { valor: 'educacao',     label: '🎓 Educação'       },
+  { valor: 'pet',          label: '🐾 Pet Shop'       },
+  { valor: 'bar',          label: '🍺 Bar/Balada'     },
+  { valor: 'hotel',        label: '🏨 Hotel'          },
+  { valor: 'servicos',     label: '🛠️ Serviços'       },
+  { valor: 'varejo',       label: '🛍️ Varejo'         },
 ];
 // #endregion
 
@@ -46,7 +52,7 @@ const STEPS = [
 const PERGUNTAS_FALLBACK: Record<Passo, { titulo: string; sub: string }> = {
   1: { titulo: 'Qual o CNPJ do seu negócio?',   sub: 'Vamos buscar seus dados automaticamente na Receita Federal.' },
   2: { titulo: 'Como seu negócio se chama?',     sub: 'Confirme ou edite o nome que aparecerá para os clientes.' },
-  3: { titulo: 'Qual é o seu segmento?',         sub: 'Escolha a categoria que melhor descreve seu negócio.' },
+  3: { titulo: 'Qual é o seu segmento?',         sub: 'Identificamos automaticamente. Confirme ou escolha outra.' },
   4: { titulo: 'Adicione uma foto da fachada',   sub: 'Negócios com foto recebem 3x mais cliques.' },
   5: { titulo: 'Tudo certo! Revise seus dados.', sub: 'Confirme as informações antes de ativar seu painel.' },
 };
@@ -63,6 +69,7 @@ const OnboardingIA: React.FC = () => {
   const [salvando, setSalvando] = useState(false);
   const [erroCNPJ, setErroCNPJ] = useState<string | null>(null);
   const [imagemUrl, setImagemUrl] = useState<string | null>(null);
+  const [categoriaAutoDetectada, setCategoriaAutoDetectada] = useState<string | null>(null);
 
   const [fallbackNome, setFallbackNome] = useState('');
   const [fallbackCNPJ, setFallbackCNPJ] = useState('');
@@ -101,12 +108,27 @@ const OnboardingIA: React.FC = () => {
           cep: result.dados.endereco.cep,
         };
         const nomeRecuperado = result.dados.nomeFantasia || result.dados.razaoSocial || '';
-        setDadosExtraidos((prev) => ({
-          ...prev,
-          cnpj: cnpjLimpo,
-          nomeFantasia: prev.nomeFantasia || nomeRecuperado,
-          endereco: enderecoReceita,
-        }));
+
+        // Detecção automática de categoria via CNAE
+        if (result.dados.categoriaDetectada) {
+          setCategoriaAutoDetectada(result.dados.categoriaDetectada);
+          setFallbackCategoria(result.dados.categoriaDetectada);
+          setDadosExtraidos((prev) => ({
+            ...prev,
+            cnpj: cnpjLimpo,
+            nomeFantasia: prev.nomeFantasia || nomeRecuperado,
+            categoria: result.dados!.categoriaDetectada,
+            endereco: enderecoReceita,
+          }));
+        } else {
+          setDadosExtraidos((prev) => ({
+            ...prev,
+            cnpj: cnpjLimpo,
+            nomeFantasia: prev.nomeFantasia || nomeRecuperado,
+            endereco: enderecoReceita,
+          }));
+        }
+
         if (nomeRecuperado) setFallbackNome(nomeRecuperado);
       }
       setCnpjValidado(true);
@@ -133,7 +155,7 @@ const OnboardingIA: React.FC = () => {
   }, [upload, usuario?.uid]);
   // #endregion
 
-  // #region Avançar fallback
+  // #region Avançar
   const handleAvancarFallback = useCallback(async () => {
     if (passo === 1) {
       const ok = await handleValidarCNPJ(fallbackCNPJ);
@@ -157,15 +179,11 @@ const OnboardingIA: React.FC = () => {
     if (!usuario?.uid) return;
     setSalvando(true);
     try {
-      const nomeF = dadosExtraidos.nomeFantasia || fallbackNome;
-      const cnpjF = dadosExtraidos.cnpj || fallbackCNPJ.replace(/\D/g, '');
-      const catF  = dadosExtraidos.categoria || fallbackCategoria;
-
       await setDoc(doc(db, 'pmes', usuario.uid), {
         uid: usuario.uid,
-        nomeFantasia: nomeF,
-        cnpj: cnpjF,
-        categoria: catF,
+        nomeFantasia: dadosExtraidos.nomeFantasia || fallbackNome,
+        cnpj: dadosExtraidos.cnpj || fallbackCNPJ.replace(/\D/g, ''),
+        categoria: dadosExtraidos.categoria || fallbackCategoria,
         endereco: dadosExtraidos.endereco ?? null,
         imagemUrl: imagemUrl ?? null,
         plano: 'free',
@@ -207,16 +225,14 @@ const OnboardingIA: React.FC = () => {
         <div className="flex items-center gap-1 mt-6">
           {STEPS.map((step, idx) => (
             <React.Fragment key={step.numero}>
-              <div className="flex flex-col items-center">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                  step.numero < passo
-                    ? 'bg-primary-500 text-white'
-                    : step.numero === passo
-                    ? 'bg-white text-neutral-900 shadow-lg'
-                    : 'bg-neutral-700 text-neutral-500'
-                }`}>
-                  {step.numero < passo ? '✓' : step.numero}
-                </div>
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                step.numero < passo
+                  ? 'bg-primary-500 text-white'
+                  : step.numero === passo
+                  ? 'bg-white text-neutral-900 shadow-lg'
+                  : 'bg-neutral-700 text-neutral-500'
+              }`}>
+                {step.numero < passo ? '✓' : step.numero}
               </div>
               {idx < STEPS.length - 1 && (
                 <div className={`flex-1 h-0.5 transition-all ${
@@ -247,11 +263,9 @@ const OnboardingIA: React.FC = () => {
                 }}
                 placeholder="00.000.000/0000-00"
                 className={`w-full border-2 rounded-2xl px-5 py-4 text-lg font-mono tracking-widest focus:outline-none transition-all ${
-                  erroCNPJ
-                    ? 'border-red-400 bg-red-50'
-                    : cnpjValidado
-                    ? 'border-success-500 bg-success-50'
-                    : 'border-neutral-200 bg-white focus:border-primary-500'
+                  erroCNPJ ? 'border-red-400 bg-red-50'
+                  : cnpjValidado ? 'border-success-500 bg-success-50'
+                  : 'border-neutral-200 bg-white focus:border-primary-500'
                 }`}
               />
               {cnpjValidado && (
@@ -284,6 +298,11 @@ const OnboardingIA: React.FC = () => {
                   {dadosExtraidos.endereco?.cidade && (
                     <p className="text-xs text-neutral-500 mt-0.5">
                       📍 {dadosExtraidos.endereco.cidade}, {dadosExtraidos.endereco.estado}
+                    </p>
+                  )}
+                  {categoriaAutoDetectada && (
+                    <p className="text-xs text-primary-600 font-semibold mt-1">
+                      🏷️ Segmento detectado: {CATEGORIAS.find(c => c.valor === categoriaAutoDetectada)?.label}
                     </p>
                   )}
                 </div>
@@ -344,17 +363,35 @@ const OnboardingIA: React.FC = () => {
         {/* PASSO 3: Categoria */}
         {passo === 3 && (
           <div className="flex flex-col gap-4">
+
+            {/* Banner de detecção automática */}
+            {categoriaAutoDetectada && (
+              <div className="flex items-center gap-3 p-3 bg-primary-50 border border-primary-200 rounded-xl">
+                <span className="text-primary-500 text-lg">🤖</span>
+                <div>
+                  <p className="text-xs text-primary-700 font-semibold">Detectado automaticamente</p>
+                  <p className="text-xs text-primary-600">Confirme ou escolha outra categoria</p>
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3">
               {CATEGORIAS.map((cat) => (
                 <button
                   key={cat.valor}
                   onClick={() => setFallbackCategoria(cat.valor)}
-                  className={`py-5 rounded-2xl text-sm font-bold border-2 transition-all active:scale-95 ${
+                  className={`py-4 rounded-2xl text-sm font-bold border-2 transition-all active:scale-95 relative ${
                     fallbackCategoria === cat.valor
                       ? 'border-primary-500 bg-primary-50 text-primary-600 shadow-md'
                       : 'border-neutral-200 bg-white text-neutral-600'
                   }`}
                 >
+                  {/* Badge "automático" na categoria detectada */}
+                  {cat.valor === categoriaAutoDetectada && (
+                    <span className="absolute -top-2 -right-2 bg-primary-500 text-white text-xs px-1.5 py-0.5 rounded-full font-bold">
+                      IA
+                    </span>
+                  )}
                   <span className="text-2xl block mb-1">{cat.label.split(' ')[0]}</span>
                   <span>{cat.label.split(' ').slice(1).join(' ')}</span>
                 </button>
@@ -366,7 +403,7 @@ const OnboardingIA: React.FC = () => {
               disabled={!fallbackCategoria}
               className="btn-primary w-full py-4 text-base font-bold rounded-2xl disabled:opacity-40"
             >
-              Continuar →
+              Confirmar categoria →
             </button>
           </div>
         )}
@@ -376,9 +413,8 @@ const OnboardingIA: React.FC = () => {
           <div className="flex flex-col gap-4">
             <label className="block cursor-pointer">
               <div className={`w-full h-52 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center transition-all overflow-hidden ${
-                previewUrl
-                  ? 'border-primary-300'
-                  : 'border-neutral-200 bg-white hover:border-primary-300 hover:bg-primary-50'
+                previewUrl ? 'border-primary-300'
+                : 'border-neutral-200 bg-white hover:border-primary-300 hover:bg-primary-50'
               }`}>
                 {previewUrl ? (
                   <img src={previewUrl} alt="Fachada" className="w-full h-full object-cover" />
@@ -394,13 +430,7 @@ const OnboardingIA: React.FC = () => {
                   </div>
                 )}
               </div>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={handleFoto}
-              />
+              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFoto} />
             </label>
 
             {previewUrl && (
@@ -424,9 +454,7 @@ const OnboardingIA: React.FC = () => {
         {passo === 5 && (
           <div className="flex flex-col gap-4">
             <div className="bg-white border-2 border-neutral-100 rounded-2xl shadow-card overflow-hidden">
-              {previewUrl && (
-                <img src={previewUrl} alt="Fachada" className="w-full h-32 object-cover" />
-              )}
+              {previewUrl && <img src={previewUrl} alt="Fachada" className="w-full h-32 object-cover" />}
               <div className="p-5 space-y-4">
                 {[
                   { icon: '🏪', label: 'Nome',      valor: dadosExtraidos.nomeFantasia || fallbackNome },
@@ -465,10 +493,7 @@ const OnboardingIA: React.FC = () => {
               ) : '🚀 Ativar meu painel agora'}
             </button>
 
-            <button
-              onClick={() => setPasso(1)}
-              className="w-full text-sm text-neutral-400 py-2"
-            >
+            <button onClick={() => setPasso(1)} className="w-full text-sm text-neutral-400 py-2">
               ← Corrigir algum dado
             </button>
           </div>
