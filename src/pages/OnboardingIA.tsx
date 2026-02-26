@@ -1,22 +1,12 @@
 // ============================================================
 // INÍCIO: src/pages/OnboardingIA.tsx
-// Versão: 1.0.0 | Data: 2026-02-25
-// Deps: React, react-router-dom, firebase/functions,
-//       firebase/firestore, hooks/useAuth, hooks/useImageUpload
-// Descrição: Onboarding conversacional da PME
-//            — Modo Chat: IA Gemini extrai dados via conversa
-//            — Modo Fallback: slot-filling guiado (se IA falha)
-//            — Transição Chat → Fallback silenciosa (sem erro visível)
-//            — 5 passos com barra de progresso
-//            — BrasilAPI valida CNPJ (Cloud Function validarCNPJ)
-//            — Upload de foto da fachada (.webp via useImageUpload)
-//            — Ao concluir: salva PME no Firestore + redireciona /dashboard
+// Versão: 2.0.1 | Data: 2026-02-26
+// Fix: removido modo, handleEnviarMensagem e progresso não usados
 // ============================================================
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { buscarCNPJ } from '../utils/validators';
+import { buscarCNPJ, formatarCNPJ } from '../utils/validators';
 import { doc, setDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import useAuth from '../hooks/useAuth';
@@ -24,10 +14,6 @@ import useImageUpload from '../hooks/useImageUpload';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
 // #region Types
-interface Mensagem {
-  role: 'assistant' | 'user';
-  content: string;
-}
 
 interface DadosExtraidos {
   nomeFantasia?: string;
@@ -38,32 +24,31 @@ interface DadosExtraidos {
 }
 
 type Passo = 1 | 2 | 3 | 4 | 5;
-type Modo = 'chat' | 'fallback';
 
-// Categorias disponíveis para seleção no fallback
 const CATEGORIAS = [
   { valor: 'restaurante', label: '🍕 Restaurante' },
-  { valor: 'beleza',      label: '💇 Beleza' },
-  { valor: 'fitness',     label: '💪 Fitness' },
-  { valor: 'servicos',    label: '🛠️ Serviços' },
-  { valor: 'varejo',      label: '🛍️ Varejo' },
+  { valor: 'beleza',      label: '💇 Beleza'      },
+  { valor: 'fitness',     label: '💪 Fitness'     },
+  { valor: 'servicos',    label: '🛠️ Serviços'    },
+  { valor: 'varejo',      label: '🛍️ Varejo'      },
 ];
 // #endregion
 
 // #region Helpers
-const MENSAGENS_INICIAIS: Mensagem[] = [
-  {
-    role: 'assistant',
-    content: 'Olá! Vou te ajudar a cadastrar seu negócio em 3 minutos. Qual o nome do seu negócio?',
-  },
+const STEPS = [
+  { numero: 1, label: 'CNPJ'      },
+  { numero: 2, label: 'Negócio'   },
+  { numero: 3, label: 'Categoria' },
+  { numero: 4, label: 'Foto'      },
+  { numero: 5, label: 'Confirmar' },
 ];
 
-const PERGUNTAS_FALLBACK: Record<Passo, string> = {
-  1: 'Qual o nome do seu negócio?',
-  2: 'Qual o CNPJ do seu negócio?',
-  3: 'Qual a categoria do seu negócio?',
-  4: 'Tire uma foto da fachada do seu negócio.',
-  5: 'Confirme os dados abaixo.',
+const PERGUNTAS_FALLBACK: Record<Passo, { titulo: string; sub: string }> = {
+  1: { titulo: 'Qual o CNPJ do seu negócio?',   sub: 'Vamos buscar seus dados automaticamente na Receita Federal.' },
+  2: { titulo: 'Como seu negócio se chama?',     sub: 'Confirme ou edite o nome que aparecerá para os clientes.' },
+  3: { titulo: 'Qual é o seu segmento?',         sub: 'Escolha a categoria que melhor descreve seu negócio.' },
+  4: { titulo: 'Adicione uma foto da fachada',   sub: 'Negócios com foto recebem 3x mais cliques.' },
+  5: { titulo: 'Tudo certo! Revise seus dados.', sub: 'Confirme as informações antes de ativar seu painel.' },
 };
 // #endregion
 
@@ -73,117 +58,39 @@ const OnboardingIA: React.FC = () => {
   const { usuario } = useAuth();
   const { upload, previewUrl, status: uploadStatus } = useImageUpload();
 
-  const [modo, setModo] = useState<Modo>('chat');
   const [passo, setPasso] = useState<Passo>(1);
-  const [mensagens, setMensagens] = useState<Mensagem[]>(MENSAGENS_INICIAIS);
-  const [inputChat, setInputChat] = useState('');
   const [dadosExtraidos, setDadosExtraidos] = useState<DadosExtraidos>({});
-  const [loadingIA, setLoadingIA] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erroCNPJ, setErroCNPJ] = useState<string | null>(null);
   const [imagemUrl, setImagemUrl] = useState<string | null>(null);
 
-  // Fallback: campos individuais
   const [fallbackNome, setFallbackNome] = useState('');
   const [fallbackCNPJ, setFallbackCNPJ] = useState('');
   const [fallbackCategoria, setFallbackCategoria] = useState('');
   const [validandoCNPJ, setValidandoCNPJ] = useState(false);
-  const [alertaEndereco, setAlertaEndereco] = useState<string | null>(null);
+  const [cnpjValidado, setCnpjValidado] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  // Scroll automático para última mensagem
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [mensagens]);
-
-  // #region Ativa fallback silenciosamente
-  const ativarFallback = useCallback((dadosAtuais: DadosExtraidos) => {
-    setModo('fallback');
-    // Preenche campos do fallback com o que já foi extraído
-    if (dadosAtuais.nomeFantasia) setFallbackNome(dadosAtuais.nomeFantasia);
-    if (dadosAtuais.cnpj) setFallbackCNPJ(dadosAtuais.cnpj);
-    if (dadosAtuais.categoria) setFallbackCategoria(dadosAtuais.categoria);
-
-    // Determina em qual passo retomar
-    if (!dadosAtuais.nomeFantasia) setPasso(1);
-    else if (!dadosAtuais.cnpj) setPasso(2);
-    else if (!dadosAtuais.categoria) setPasso(3);
-    else setPasso(4);
   }, []);
-  // #endregion
 
-  // #region Enviar mensagem no chat
-  const handleEnviarMensagem = useCallback(async () => {
-    if (!inputChat.trim() || loadingIA || !usuario?.uid) return;
-
-    const novaMensagem: Mensagem = { role: 'user', content: inputChat.trim() };
-    const historico = [...mensagens, novaMensagem];
-    setMensagens(historico);
-    setInputChat('');
-    setLoadingIA(true);
-
-    try {
-      const functions = getFunctions();
-      const fn = httpsCallable<
-        { mensagens: Mensagem[]; dadosAtuais: DadosExtraidos },
-        { resposta: string; dadosExtraidos: DadosExtraidos; concluido: boolean; fallback?: boolean }
-      >(functions, 'chatIA');
-
-      const result = await fn({ mensagens: historico, dadosAtuais: dadosExtraidos });
-      const { resposta, dadosExtraidos: novos, concluido, fallback } = result.data;
-
-      // Se IA sinaliza fallback (rate limit ou erro), ativa modo silencioso
-      if (fallback) {
-        ativarFallback({ ...dadosExtraidos, ...novos });
-        return;
-      }
-
-      // Atualiza dados extraídos acumulados
-      const dadosAtualizados = { ...dadosExtraidos, ...novos };
-      setDadosExtraidos(dadosAtualizados);
-
-      // Adiciona resposta da IA ao chat
-      setMensagens([...historico, { role: 'assistant', content: resposta }]);
-
-      // Atualiza barra de progresso conforme dados extraídos
-      const campos = ['nomeFantasia', 'cnpj', 'categoria'] as const;
-      const preenchidos = campos.filter((c) => dadosAtualizados[c]).length;
-      setPasso((Math.min(preenchidos + 1, 4)) as Passo);
-
-      // IA sinalizou que todos os dados foram coletados
-      if (concluido) setPasso(4); // Vai para passo de foto
-
-    } catch {
-      // Qualquer erro → fallback silencioso
-      ativarFallback(dadosExtraidos);
-    } finally {
-      setLoadingIA(false);
-    }
-  }, [inputChat, mensagens, dadosExtraidos, loadingIA, usuario?.uid, ativarFallback]);
-  // #endregion
-
-  // #region Validar CNPJ (fallback e chat)
+  // #region Validar CNPJ
   const handleValidarCNPJ = useCallback(async (cnpj: string) => {
     const cnpjLimpo = cnpj.replace(/\D/g, '');
     if (cnpjLimpo.length !== 14) {
-      setErroCNPJ('CNPJ deve ter 14 dígitos.');
+      setErroCNPJ('Digite os 14 dígitos do CNPJ.');
       return false;
     }
-
     setValidandoCNPJ(true);
     setErroCNPJ(null);
-
     try {
-      // Opção A: client-side direto (evita bloqueio de IP de datacenter)
       const result = await buscarCNPJ(cnpjLimpo);
-
       if (!result.valido) {
         setErroCNPJ(result.erro ?? 'CNPJ não encontrado ou inativo.');
         return false;
       }
-
-      // Preenche endereço automaticamente se disponível
       if (result.dados) {
         const enderecoReceita = {
           rua: result.dados.endereco.logradouro,
@@ -193,82 +100,74 @@ const OnboardingIA: React.FC = () => {
           estado: result.dados.endereco.uf,
           cep: result.dados.endereco.cep,
         };
-
+        const nomeRecuperado = result.dados.nomeFantasia || result.dados.razaoSocial || '';
         setDadosExtraidos((prev) => ({
           ...prev,
           cnpj: cnpjLimpo,
-          nomeFantasia: prev.nomeFantasia || result.dados!.nomeFantasia,
+          nomeFantasia: prev.nomeFantasia || nomeRecuperado,
           endereco: enderecoReceita,
         }));
-
-        // Antifraude: cruzamento cidade Receita vs cidade digitada
-        const cidadeReceita = result.dados.endereco.municipio.toLowerCase().trim();
-        const cidadeDigitada = (dadosExtraidos.endereco?.cidade ?? '').toLowerCase().trim();
-        if (cidadeDigitada && cidadeReceita && cidadeDigitada !== cidadeReceita) {
-          setAlertaEndereco(
-            `⚠️ O CNPJ está registrado em ${result.dados.endereco.municipio}/${result.dados.endereco.uf} na Receita Federal, mas você informou ${dadosExtraidos.endereco?.cidade}. Confirme se o endereço está correto.`
-          );
-        } else {
-          setAlertaEndereco(null);
-        }
+        if (nomeRecuperado) setFallbackNome(nomeRecuperado);
       }
-
+      setCnpjValidado(true);
       return true;
     } catch {
-      setErroCNPJ('Não foi possível validar o CNPJ. Prossiga mesmo assim.');
-      return true;
+      setErroCNPJ('Erro ao validar. Tente novamente.');
+      return false;
     } finally {
       setValidandoCNPJ(false);
     }
-  }, [dadosExtraidos.endereco]);
+  }, []);
   // #endregion
 
-  // #region Upload de foto
-  const handleFoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // #region Foto
+  const handleFoto = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !usuario?.uid) return;
-    const path = `pmes/${usuario.uid}/fachada.webp`;
-    const url = await upload(file, path);
-    if (url) setImagemUrl(url);
-  };
+    try {
+      const url = await upload(file, `pmes/${usuario.uid}/fachada`);
+      if (url) setImagemUrl(url);
+    } catch {
+      // Upload falhou silenciosamente — foto é opcional
+    }
+  }, [upload, usuario?.uid]);
   // #endregion
 
-  // #region Avançar no fallback
+  // #region Avançar fallback
   const handleAvancarFallback = useCallback(async () => {
     if (passo === 1) {
-      if (!fallbackNome.trim()) return;
-      setDadosExtraidos((p) => ({ ...p, nomeFantasia: fallbackNome.trim() }));
-      setPasso(2);
-    } else if (passo === 2) {
       const ok = await handleValidarCNPJ(fallbackCNPJ);
-      if (!ok) return;
-      setDadosExtraidos((p) => ({ ...p, cnpj: fallbackCNPJ.replace(/\D/g, '') }));
+      if (ok) setPasso(2);
+    } else if (passo === 2) {
+      if (!fallbackNome.trim()) return;
+      setDadosExtraidos((prev) => ({ ...prev, nomeFantasia: fallbackNome.trim() }));
       setPasso(3);
     } else if (passo === 3) {
       if (!fallbackCategoria) return;
-      setDadosExtraidos((p) => ({ ...p, categoria: fallbackCategoria }));
+      setDadosExtraidos((prev) => ({ ...prev, categoria: fallbackCategoria }));
       setPasso(4);
     } else if (passo === 4) {
       setPasso(5);
     }
-  }, [passo, fallbackNome, fallbackCNPJ, fallbackCategoria, handleValidarCNPJ]);
+  }, [passo, fallbackCNPJ, fallbackNome, fallbackCategoria, handleValidarCNPJ]);
   // #endregion
 
-  // #region Salvar PME no Firestore
+  // #region Concluir
   const handleConcluir = useCallback(async () => {
     if (!usuario?.uid) return;
     setSalvando(true);
-
     try {
-      // setDoc com merge cria o doc se não existir, atualiza se existir
+      const nomeF = dadosExtraidos.nomeFantasia || fallbackNome;
+      const cnpjF = dadosExtraidos.cnpj || fallbackCNPJ.replace(/\D/g, '');
+      const catF  = dadosExtraidos.categoria || fallbackCategoria;
+
       await setDoc(doc(db, 'pmes', usuario.uid), {
-        nomeFantasia: dadosExtraidos.nomeFantasia ?? fallbackNome,
-        cnpj: dadosExtraidos.cnpj ?? fallbackCNPJ.replace(/\D/g, ''),
-        categoria: dadosExtraidos.categoria ?? fallbackCategoria,
-        endereco: dadosExtraidos.endereco ?? {},
-        telefone: dadosExtraidos.telefone ?? null,
+        uid: usuario.uid,
+        nomeFantasia: nomeF,
+        cnpj: cnpjF,
+        categoria: catF,
+        endereco: dadosExtraidos.endereco ?? null,
         imagemUrl: imagemUrl ?? null,
-        status: 'ativo',
         plano: 'free',
         limiteOfertas: 10,
         ofertasCriadas: 0,
@@ -276,280 +175,315 @@ const OnboardingIA: React.FC = () => {
         verificada: false,
         createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
-      }, { merge: true });
-      // Força refresh do token para pegar custom claim atualizada
-      await usuario.getIdToken(true);
+      });
       navigate('/dashboard', { replace: true });
     } catch (err) {
-      console.error('Erro ao concluir cadastro:', err);
+      console.error('Erro ao salvar PME:', err);
       setSalvando(false);
     }
-  }, [usuario, dadosExtraidos, fallbackNome, fallbackCNPJ, fallbackCategoria, imagemUrl, navigate]);
+  }, [usuario?.uid, dadosExtraidos, fallbackNome, fallbackCNPJ, fallbackCategoria, imagemUrl, navigate]);
   // #endregion
 
-  const progresso = Math.round(((passo - 1) / 4) * 100);
-
   return (
-    <div className="min-h-screen bg-white flex flex-col">
+    <div className="min-h-screen bg-neutral-50 flex flex-col">
 
-      {/* Header com progresso */}
-      <header className="px-4 pt-4 pb-3 border-b border-neutral-100">
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-sm font-semibold text-neutral-600">
-            Passo {passo} de 5
-          </span>
-          <span className="text-xs text-neutral-400">
-            {modo === 'chat' ? '🤖 Assistente IA' : '📋 Cadastro guiado'}
-          </span>
+      {/* ── HEADER PREMIUM ── */}
+      <div className="bg-gradient-to-br from-neutral-900 via-neutral-800 to-primary-900 px-6 pt-12 pb-8">
+        <div className="flex items-center gap-2 mb-8">
+          <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center">
+            <span className="text-white font-black text-sm">F</span>
+          </div>
+          <span className="text-white font-bold text-lg tracking-tight">FlashDeal</span>
         </div>
-        <div className="h-1.5 bg-neutral-100 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-primary-500 rounded-full transition-all duration-500"
-            style={{ width: `${progresso}%` }}
-          />
-        </div>
-      </header>
 
-      {/* MODO CHAT */}
-      {modo === 'chat' && (
-        <>
-          {/* Área de mensagens */}
-          <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-            {mensagens.map((msg, i) => (
-              <div
-                key={i}
-                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-                  msg.role === 'user'
-                    ? 'bg-primary-500 text-white rounded-br-sm'
-                    : 'bg-neutral-100 text-neutral-800 rounded-bl-sm'
+        <h1 className="text-2xl font-black text-white leading-tight mb-1">
+          {PERGUNTAS_FALLBACK[passo].titulo}
+        </h1>
+        <p className="text-neutral-400 text-sm leading-relaxed">
+          {PERGUNTAS_FALLBACK[passo].sub}
+        </p>
+
+        {/* Steps numerados */}
+        <div className="flex items-center gap-1 mt-6">
+          {STEPS.map((step, idx) => (
+            <React.Fragment key={step.numero}>
+              <div className="flex flex-col items-center">
+                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
+                  step.numero < passo
+                    ? 'bg-primary-500 text-white'
+                    : step.numero === passo
+                    ? 'bg-white text-neutral-900 shadow-lg'
+                    : 'bg-neutral-700 text-neutral-500'
                 }`}>
-                  {msg.content}
+                  {step.numero < passo ? '✓' : step.numero}
                 </div>
               </div>
-            ))}
+              {idx < STEPS.length - 1 && (
+                <div className={`flex-1 h-0.5 transition-all ${
+                  step.numero < passo ? 'bg-primary-500' : 'bg-neutral-700'
+                }`} />
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+      </div>
 
-            {/* Indicador de digitação */}
-            {loadingIA && (
-              <div className="flex justify-start">
-                <div className="bg-neutral-100 rounded-2xl rounded-bl-sm px-4 py-3">
-                  <div className="flex gap-1">
-                    <span className="w-1.5 h-1.5 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                    <span className="w-1.5 h-1.5 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                    <span className="w-1.5 h-1.5 bg-neutral-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
-                  </div>
+      {/* ── CONTEÚDO ── */}
+      <div className="flex-1 px-6 py-8 flex flex-col gap-6">
+
+        {/* PASSO 1: CNPJ */}
+        {passo === 1 && (
+          <div className="flex flex-col gap-4">
+            <div className="relative">
+              <input
+                type="text"
+                inputMode="numeric"
+                value={formatarCNPJ(fallbackCNPJ)}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 14);
+                  setFallbackCNPJ(val);
+                  setErroCNPJ(null);
+                  setCnpjValidado(false);
+                }}
+                placeholder="00.000.000/0000-00"
+                className={`w-full border-2 rounded-2xl px-5 py-4 text-lg font-mono tracking-widest focus:outline-none transition-all ${
+                  erroCNPJ
+                    ? 'border-red-400 bg-red-50'
+                    : cnpjValidado
+                    ? 'border-success-500 bg-success-50'
+                    : 'border-neutral-200 bg-white focus:border-primary-500'
+                }`}
+              />
+              {cnpjValidado && (
+                <div className="absolute right-4 top-1/2 -translate-y-1/2 w-7 h-7 bg-success-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-xs font-bold">✓</span>
+                </div>
+              )}
+              {validandoCNPJ && (
+                <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                  <LoadingSpinner size="sm" />
+                </div>
+              )}
+            </div>
+
+            {erroCNPJ && (
+              <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-xl">
+                <span className="text-red-500 mt-0.5">⚠️</span>
+                <p className="text-sm text-red-600">{erroCNPJ}</p>
+              </div>
+            )}
+
+            {cnpjValidado && dadosExtraidos.nomeFantasia && (
+              <div className="flex items-start gap-3 p-4 bg-success-50 border border-success-300 rounded-2xl">
+                <div className="w-8 h-8 bg-success-500 rounded-full flex items-center justify-center shrink-0">
+                  <span className="text-white text-sm">✓</span>
+                </div>
+                <div>
+                  <p className="text-xs text-success-700 font-semibold uppercase tracking-wide">Empresa encontrada</p>
+                  <p className="text-sm font-bold text-neutral-800 mt-0.5">{dadosExtraidos.nomeFantasia}</p>
+                  {dadosExtraidos.endereco?.cidade && (
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                      📍 {dadosExtraidos.endereco.cidade}, {dadosExtraidos.endereco.estado}
+                    </p>
+                  )}
                 </div>
               </div>
             )}
-            <div ref={chatEndRef} />
-          </div>
 
-          {/* Input do chat */}
-          <div className="px-4 py-3 border-t border-neutral-100 flex gap-2">
-            <input
-              type="text"
-              value={inputChat}
-              onChange={(e) => setInputChat(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleEnviarMensagem()}
-              placeholder="Digite sua mensagem..."
-              className="flex-1 border border-neutral-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:border-primary-500"
-              disabled={loadingIA}
-            />
             <button
-              onClick={handleEnviarMensagem}
-              disabled={loadingIA || !inputChat.trim()}
-              className="w-10 h-10 bg-primary-500 text-white rounded-xl flex items-center justify-center disabled:opacity-50 shrink-0"
+              onClick={handleAvancarFallback}
+              disabled={validandoCNPJ || fallbackCNPJ.replace(/\D/g, '').length < 14}
+              className="btn-primary w-full py-4 text-base font-bold rounded-2xl disabled:opacity-40"
             >
-              ➤
+              {validandoCNPJ ? '🔍 Buscando na Receita Federal...' : 'Validar CNPJ →'}
+            </button>
+
+            <button
+              onClick={() => { setErroCNPJ(null); setPasso(2); }}
+              className="w-full text-sm text-neutral-400 py-2"
+            >
+              Não tenho CNPJ — pular esta etapa
             </button>
           </div>
+        )}
 
-          {/* Link para fallback manual */}
-          <p className="text-center text-xs text-neutral-400 pb-4">
-            <button onClick={() => ativarFallback(dadosExtraidos)} className="underline">
-              Prefiro preencher manualmente
-            </button>
-          </p>
-        </>
-      )}
-
-      {/* MODO FALLBACK */}
-      {modo === 'fallback' && (
-        <div className="flex-1 px-6 py-6 flex flex-col">
-          <p className="text-lg font-semibold text-neutral-800 mb-6">
-            {PERGUNTAS_FALLBACK[passo]}
-          </p>
-
-          {/* Passo 1: Nome */}
-          {passo === 1 && (
-            <div className="space-y-3">
+        {/* PASSO 2: Nome */}
+        {passo === 2 && (
+          <div className="flex flex-col gap-4">
+            <div className="p-4 bg-white border-2 border-neutral-100 rounded-2xl shadow-card">
+              <p className="text-xs text-neutral-400 font-semibold uppercase tracking-wide mb-1">Nome do negócio</p>
               <input
                 type="text"
                 value={fallbackNome}
                 onChange={(e) => setFallbackNome(e.target.value)}
                 placeholder="Ex: Pizzaria Bella"
-                className="w-full border border-neutral-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500"
+                className="w-full text-lg font-bold text-neutral-800 focus:outline-none placeholder:text-neutral-300"
                 autoFocus
               />
-              <button
-                onClick={handleAvancarFallback}
-                disabled={!fallbackNome.trim()}
-                className="btn-primary w-full disabled:opacity-50"
-              >
-                Continuar →
-              </button>
             </div>
-          )}
 
-          {/* Passo 2: CNPJ */}
-          {passo === 2 && (
-            <div className="space-y-3">
-              <input
-                type="text"
-                value={fallbackCNPJ}
-                onChange={(e) => setFallbackCNPJ(e.target.value)}
-                placeholder="XX.XXX.XXX/XXXX-XX"
-                maxLength={18}
-                className={`w-full border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary-500
-                  ${erroCNPJ ? 'border-red-400' : 'border-neutral-300'}`}
-              />
-              {erroCNPJ && <p className="text-xs text-red-500">{erroCNPJ}</p>}
-              {alertaEndereco && (
-                <div className="mt-2 p-3 bg-yellow-50 border border-yellow-300 rounded-lg text-xs text-yellow-800">
-                  {alertaEndereco}
-                </div>
-              )}
-              <button
-                onClick={handleAvancarFallback}
-                disabled={validandoCNPJ || fallbackCNPJ.replace(/\D/g, '').length < 14}
-                className="btn-primary w-full disabled:opacity-50"
-              >
-                {validandoCNPJ ? '🔍 Validando CNPJ...' : 'Validar e continuar →'}
-              </button>
-              <button
-                onClick={() => { setErroCNPJ(null); setPasso(3); }}
-                className="w-full text-sm text-neutral-400 underline"
-              >
-                Não tenho CNPJ — pular
-              </button>
-            </div>
-          )}
-
-          {/* Passo 3: Categoria */}
-          {passo === 3 && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                {CATEGORIAS.map((cat) => (
-                  <button
-                    key={cat.valor}
-                    onClick={() => setFallbackCategoria(cat.valor)}
-                    className={`py-3 rounded-xl text-sm font-medium border-2 transition-colors ${
-                      fallbackCategoria === cat.valor
-                        ? 'border-primary-500 bg-primary-50 text-primary-600'
-                        : 'border-neutral-200 text-neutral-600'
-                    }`}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
+            {dadosExtraidos.endereco?.cidade && (
+              <div className="flex items-center gap-2 px-1">
+                <span className="text-neutral-400 text-sm">📍</span>
+                <p className="text-sm text-neutral-500">
+                  {dadosExtraidos.endereco.rua}, {dadosExtraidos.endereco.numero} — {dadosExtraidos.endereco.cidade}/{dadosExtraidos.endereco.estado}
+                </p>
               </div>
-              <button
-                onClick={handleAvancarFallback}
-                disabled={!fallbackCategoria}
-                className="btn-primary w-full disabled:opacity-50 mt-2"
-              >
-                Continuar →
-              </button>
+            )}
+
+            <button
+              onClick={handleAvancarFallback}
+              disabled={!fallbackNome.trim()}
+              className="btn-primary w-full py-4 text-base font-bold rounded-2xl disabled:opacity-40"
+            >
+              Confirmar nome →
+            </button>
+          </div>
+        )}
+
+        {/* PASSO 3: Categoria */}
+        {passo === 3 && (
+          <div className="flex flex-col gap-4">
+            <div className="grid grid-cols-2 gap-3">
+              {CATEGORIAS.map((cat) => (
+                <button
+                  key={cat.valor}
+                  onClick={() => setFallbackCategoria(cat.valor)}
+                  className={`py-5 rounded-2xl text-sm font-bold border-2 transition-all active:scale-95 ${
+                    fallbackCategoria === cat.valor
+                      ? 'border-primary-500 bg-primary-50 text-primary-600 shadow-md'
+                      : 'border-neutral-200 bg-white text-neutral-600'
+                  }`}
+                >
+                  <span className="text-2xl block mb-1">{cat.label.split(' ')[0]}</span>
+                  <span>{cat.label.split(' ').slice(1).join(' ')}</span>
+                </button>
+              ))}
             </div>
-          )}
 
-          {/* Passo 4: Foto */}
-          {passo === 4 && (
-            <div className="space-y-4">
-              <label className="block">
-                <div className={`w-full h-40 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-colors
-                  ${previewUrl ? 'border-primary-300' : 'border-neutral-200 hover:border-neutral-300'}`}>
-                  {previewUrl ? (
-                    <img src={previewUrl} alt="Fachada" className="w-full h-full object-cover rounded-2xl" />
-                  ) : (
-                    <>
-                      <p className="text-3xl mb-2">📷</p>
-                      <p className="text-sm text-neutral-500">
-                        {uploadStatus === 'comprimindo' ? 'Comprimindo...'
-                          : uploadStatus === 'enviando' ? `Enviando... ${uploadStatus}`
-                          : 'Tirar foto ou escolher da galeria'}
-                      </p>
-                    </>
-                  )}
-                </div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  className="hidden"
-                  onChange={handleFoto}
-                />
-              </label>
+            <button
+              onClick={handleAvancarFallback}
+              disabled={!fallbackCategoria}
+              className="btn-primary w-full py-4 text-base font-bold rounded-2xl disabled:opacity-40"
+            >
+              Continuar →
+            </button>
+          </div>
+        )}
 
-              <button
-                onClick={handleAvancarFallback}
-                disabled={uploadStatus === 'enviando' || uploadStatus === 'comprimindo'}
-                className="btn-primary w-full disabled:opacity-50"
-              >
-                {previewUrl ? 'Continuar com essa foto →' : 'Pular foto →'}
-              </button>
-            </div>
-          )}
-
-          {/* Passo 5: Confirmação */}
-          {passo === 5 && (
-            <div className="space-y-4">
-              <div className="card p-4 space-y-3">
-                {[
-                  { label: '🏪 Nome', valor: dadosExtraidos.nomeFantasia ?? fallbackNome },
-                  { label: '📋 CNPJ', valor: dadosExtraidos.cnpj ?? fallbackCNPJ },
-                  { label: '🏷️ Categoria', valor: dadosExtraidos.categoria ?? fallbackCategoria },
-                  { label: '📍 Endereço', valor: dadosExtraidos.endereco?.rua
-                    ? `${dadosExtraidos.endereco.rua}, ${dadosExtraidos.endereco.numero}`
-                    : 'Não informado' },
-                ].map(({ label, valor }) => (
-                  <div key={label}>
-                    <p className="text-xs text-neutral-400">{label}</p>
-                    <p className="text-sm font-medium text-neutral-800">{valor || '—'}</p>
+        {/* PASSO 4: Foto */}
+        {passo === 4 && (
+          <div className="flex flex-col gap-4">
+            <label className="block cursor-pointer">
+              <div className={`w-full h-52 border-2 border-dashed rounded-2xl flex flex-col items-center justify-center transition-all overflow-hidden ${
+                previewUrl
+                  ? 'border-primary-300'
+                  : 'border-neutral-200 bg-white hover:border-primary-300 hover:bg-primary-50'
+              }`}>
+                {previewUrl ? (
+                  <img src={previewUrl} alt="Fachada" className="w-full h-full object-cover" />
+                ) : (
+                  <div className="text-center px-6">
+                    <p className="text-5xl mb-3">📷</p>
+                    <p className="text-sm font-semibold text-neutral-600">
+                      {uploadStatus === 'comprimindo' ? '⚙️ Otimizando imagem...'
+                        : uploadStatus === 'enviando' ? '☁️ Enviando...'
+                        : 'Toque para tirar foto ou escolher da galeria'}
+                    </p>
+                    <p className="text-xs text-neutral-400 mt-1">Recomendado: foto da fachada do negócio</p>
                   </div>
-                ))}
-                {previewUrl && (
-                  <img src={previewUrl} alt="Fachada" className="w-full h-24 object-cover rounded-lg" />
                 )}
               </div>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleFoto}
+              />
+            </label>
 
-              <button
-                onClick={handleConcluir}
-                disabled={salvando}
-                className="btn-primary w-full py-4 text-base font-bold disabled:opacity-50"
-              >
-                {salvando ? <LoadingSpinner size="sm" /> : '🎉 Concluir cadastro'}
-              </button>
+            {previewUrl && (
+              <div className="flex items-center gap-2 p-3 bg-success-50 border border-success-200 rounded-xl">
+                <span className="text-success-500">✓</span>
+                <p className="text-sm text-success-700 font-semibold">Foto adicionada com sucesso</p>
+              </div>
+            )}
 
-              <button
-                onClick={() => setPasso(1)}
-                className="w-full text-sm text-neutral-400 underline"
-              >
-                Corrigir dados
-              </button>
-            </div>
-          )}
-
-          {/* Botão voltar */}
-          {passo > 1 && passo < 5 && (
             <button
-              onClick={() => setPasso((p) => (p - 1) as Passo)}
-              className="mt-auto pt-4 text-sm text-neutral-400"
+              onClick={handleAvancarFallback}
+              disabled={uploadStatus === 'enviando' || uploadStatus === 'comprimindo'}
+              className="btn-primary w-full py-4 text-base font-bold rounded-2xl disabled:opacity-40"
             >
-              ← Voltar
+              {previewUrl ? 'Continuar com essa foto →' : 'Pular — adicionar depois →'}
             </button>
-          )}
+          </div>
+        )}
+
+        {/* PASSO 5: Confirmação */}
+        {passo === 5 && (
+          <div className="flex flex-col gap-4">
+            <div className="bg-white border-2 border-neutral-100 rounded-2xl shadow-card overflow-hidden">
+              {previewUrl && (
+                <img src={previewUrl} alt="Fachada" className="w-full h-32 object-cover" />
+              )}
+              <div className="p-5 space-y-4">
+                {[
+                  { icon: '🏪', label: 'Nome',      valor: dadosExtraidos.nomeFantasia || fallbackNome },
+                  { icon: '📋', label: 'CNPJ',      valor: dadosExtraidos.cnpj ? formatarCNPJ(dadosExtraidos.cnpj) : fallbackCNPJ },
+                  { icon: '🏷️', label: 'Categoria', valor: CATEGORIAS.find(c => c.valor === (dadosExtraidos.categoria || fallbackCategoria))?.label || '—' },
+                  { icon: '📍', label: 'Endereço',  valor: dadosExtraidos.endereco?.rua ? `${dadosExtraidos.endereco.rua}, ${dadosExtraidos.endereco.numero} — ${dadosExtraidos.endereco.cidade}` : 'Não informado' },
+                ].map(({ icon, label, valor }) => (
+                  <div key={label} className="flex items-start gap-3">
+                    <span className="text-lg mt-0.5">{icon}</span>
+                    <div>
+                      <p className="text-xs text-neutral-400 font-semibold uppercase tracking-wide">{label}</p>
+                      <p className="text-sm font-bold text-neutral-800 mt-0.5">{valor || '—'}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-primary-50 to-orange-50 border border-primary-200 rounded-2xl">
+              <span className="text-2xl">🎁</span>
+              <div>
+                <p className="text-sm font-bold text-primary-700">Plano Gratuito ativado</p>
+                <p className="text-xs text-primary-600">10 ofertas por mês, sem cartão de crédito</p>
+              </div>
+            </div>
+
+            <button
+              onClick={handleConcluir}
+              disabled={salvando}
+              className="btn-primary w-full py-5 text-base font-black rounded-2xl shadow-lg disabled:opacity-40"
+            >
+              {salvando ? (
+                <span className="flex items-center justify-center gap-2">
+                  <LoadingSpinner size="sm" /> Ativando seu painel...
+                </span>
+              ) : '🚀 Ativar meu painel agora'}
+            </button>
+
+            <button
+              onClick={() => setPasso(1)}
+              className="w-full text-sm text-neutral-400 py-2"
+            >
+              ← Corrigir algum dado
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── BOTÃO VOLTAR (passos 2-4) ── */}
+      {passo > 1 && passo < 5 && (
+        <div className="px-6 pb-8">
+          <button
+            onClick={() => setPasso((p) => (p - 1) as Passo)}
+            className="flex items-center gap-2 text-sm text-neutral-500 font-medium"
+          >
+            ← Voltar
+          </button>
         </div>
       )}
     </div>
