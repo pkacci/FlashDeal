@@ -114,7 +114,7 @@ export const chatIA = onCall(async (request: CallableRequest) => {
   const rateLimitRef = db.collection('rateLimits').doc(uid);
   const rateLimitSnap = await rateLimitRef.get();
 
-  if (rateLimitSnap.exists()) {
+  if (rateLimitSnap.exists) {
     const data = rateLimitSnap.data()!;
     const windowStart = data.chatIA?.windowStart?.toDate() ?? new Date(0);
     const count = data.chatIA?.count ?? 0;
@@ -239,7 +239,7 @@ export const gerarPix = onCall(async (request: CallableRequest) => {
 
   // Valida oferta
   const ofertaSnap = await db.collection('ofertas').doc(ofertaId).get();
-  if (!ofertaSnap.exists()) {
+  if (!ofertaSnap.exists) {
     throw new HttpsError('not-found', 'Oferta não encontrada');
   }
 
@@ -254,7 +254,7 @@ export const gerarPix = onCall(async (request: CallableRequest) => {
 
   // Verifica consumidor
   const consumidorSnap = await db.collection('consumidores').doc(uid).get();
-  if (!consumidorSnap.exists()) {
+  if (!consumidorSnap.exists) {
     throw new HttpsError('not-found', 'Consumidor não encontrado');
   }
   const consumidor = consumidorSnap.data()!;
@@ -417,7 +417,7 @@ export const confirmarPagamentoManual = onCall(async (request: CallableRequest) 
   const { reservaId } = request.data as { reservaId: string };
 
   const reservaSnap = await db.collection('reservas').doc(reservaId).get();
-  if (!reservaSnap.exists()) throw new HttpsError('not-found', 'Reserva não encontrada');
+  if (!reservaSnap.exists) throw new HttpsError('not-found', 'Reserva não encontrada');
 
   const reserva = reservaSnap.data()!;
   if (reserva.consumidorId !== uid) throw new HttpsError('permission-denied', 'Sem permissão');
@@ -454,7 +454,7 @@ export const cancelarReserva = onCall(async (request: CallableRequest) => {
   };
 
   const reservaSnap = await db.collection('reservas').doc(reservaId).get();
-  if (!reservaSnap.exists()) throw new HttpsError('not-found', 'Reserva não encontrada');
+  if (!reservaSnap.exists) throw new HttpsError('not-found', 'Reserva não encontrada');
 
   const reserva = reservaSnap.data()!;
   if (reserva.consumidorId !== uid) throw new HttpsError('permission-denied', 'Sem permissão');
@@ -546,7 +546,7 @@ export const confirmarEntrega = onCall(async (request: CallableRequest) => {
   const { reservaId } = request.data as { reservaId: string };
 
   const reservaSnap = await db.collection('reservas').doc(reservaId).get();
-  if (!reservaSnap.exists()) throw new HttpsError('not-found', 'Reserva não encontrada');
+  if (!reservaSnap.exists) throw new HttpsError('not-found', 'Reserva não encontrada');
 
   const reserva = reservaSnap.data()!;
   if (reserva.pmeId !== uid) throw new HttpsError('permission-denied', 'Sem permissão');
