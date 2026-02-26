@@ -1,108 +1,61 @@
-// ==========================================
-// [ARQUIVO] ToastContext.tsx v1.0
-// [DATA] 2026-02-25
-// [REQUER] index.css (classes badge/animação)
-// ==========================================
+// ============================================================
+// INÍCIO: src/contexts/ToastContext.tsx
+// Versão: 1.1.0 | Correção: addToast exportado no tipo
+// ============================================================
 
-// #region IMPORTS
-import { createContext, useContext, useState, useCallback } from 'react'
-// #endregion IMPORTS
+import React, { createContext, useContext, useState, useCallback } from 'react';
 
-// #region TYPES
-export type ToastType = 'success' | 'error' | 'warning' | 'info'
+export type ToastType = 'success' | 'error' | 'info' | 'warning';
 
-export interface Toast {
-  id: string
-  message: string
-  type: ToastType
-  duration?: number    // ms — padrão 3000
+export interface ToastItem {
+  id: string;
+  mensagem: string;
+  tipo: ToastType;
 }
 
-interface ToastContextType {
-  toasts: Toast[]
-  showToast: (message: string, type?: ToastType, duration?: number) => void
-  hideToast: (id: string) => void
+export interface ToastContextType {
+  toasts: ToastItem[];
+  addToast: (mensagem: string, tipo?: ToastType) => void; // ← adicionado
+  showToast: (mensagem: string, tipo?: ToastType) => void;
+  removeToast: (id: string) => void;
 }
-// #endregion TYPES
 
-// #region CONTEXT
-const ToastContext = createContext<ToastContextType | null>(null)
-// #endregion CONTEXT
+export const ToastContext = createContext<ToastContextType | null>(null);
 
-// #region PROVIDER
-export function ToastProvider({ children }: { children: React.ReactNode }) {
-  const [toasts, setToasts] = useState<Toast[]>([])
+export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
 
-  // #region SHOW
-  const showToast = useCallback((
-    message: string,
-    type: ToastType = 'info',
-    duration: number = 3000
-  ) => {
-    const id = crypto.randomUUID()
-    setToasts(prev => [...prev, { id, message, type, duration }])
+  const showToast = useCallback((mensagem: string, tipo: ToastType = 'info') => {
+    const id = `${Date.now()}-${Math.random()}`;
+    setToasts((prev) => [...prev, { id, mensagem, tipo }]);
+    // Remove automaticamente após 4s
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4000);
+  }, []);
 
-    // Remove automaticamente após duration
-    setTimeout(() => hideToast(id), duration)
-  }, [])
-  // #endregion SHOW
+  // addToast é alias de showToast para compatibilidade
+  const addToast = showToast;
 
-  // #region HIDE
-  const hideToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id))
-  }, [])
-  // #endregion HIDE
-
-  // #region RENDER TOASTS
-  const toastColors: Record<ToastType, string> = {
-    success: 'bg-success-500 text-white',
-    error:   'bg-danger-500 text-white',
-    warning: 'bg-warning-500 text-white',
-    info:    'bg-secondary-500 text-white',
-  }
-
-  const toastIcons: Record<ToastType, string> = {
-    success: '✅',
-    error:   '❌',
-    warning: '⚠️',
-    info:    'ℹ️',
-  }
-  // #endregion RENDER TOASTS
+  const removeToast = useCallback((id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
 
   return (
-    <ToastContext.Provider value={{ toasts, showToast, hideToast }}>
+    <ToastContext.Provider value={{ toasts, addToast, showToast, removeToast }}>
       {children}
-
-      {/* #region TOAST UI — fixo no topo */}
-      <div className="fixed top-4 left-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none">
-        {toasts.map(toast => (
-          <div
-            key={toast.id}
-            className={`
-              ${toastColors[toast.type]}
-              rounded-lg px-4 py-3 shadow-lg
-              flex items-center gap-2
-              animate-slide-up pointer-events-auto
-            `}
-            onClick={() => hideToast(toast.id)}
-          >
-            <span>{toastIcons[toast.type]}</span>
-            <span className="text-sm font-medium">{toast.message}</span>
-          </div>
-        ))}
-      </div>
-      {/* #endregion TOAST UI */}
-
     </ToastContext.Provider>
-  )
-}
-// #endregion PROVIDER
+  );
+};
 
-// #region HOOK
-// useToast() — use em qualquer componente
-export function useToast(): ToastContextType {
-  const context = useContext(ToastContext)
-  if (!context) throw new Error('useToast deve ser usado dentro de ToastProvider')
-  return context
-}
-// #endregion HOOK
+export const useToast = () => {
+  const ctx = useContext(ToastContext);
+  if (!ctx) throw new Error('useToast deve ser usado dentro de ToastProvider');
+  return ctx;
+};
+
+export default ToastProvider;
+
+// ============================================================
+// FIM: src/contexts/ToastContext.tsx
+// ============================================================
