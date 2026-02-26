@@ -195,8 +195,9 @@ const OnboardingIA: React.FC = () => {
         updatedAt: Timestamp.now(),
       });
       navigate('/dashboard', { replace: true });
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao salvar PME:', err);
+      alert("Erro: " + (err?.message || JSON.stringify(err)));
       setSalvando(false);
     }
   }, [usuario?.uid, dadosExtraidos, fallbackNome, fallbackCNPJ, fallbackCategoria, imagemUrl, navigate]);
