@@ -1,48 +1,65 @@
 export function validarFormatoCNPJ(cnpj: string): boolean {
-  const numeros = cnpj.replace(/\D/g, '');
-  if (numeros.length !== 14) return false;
+  const n = cnpj.replace(/\D/g, '');
+  if (n.length !== 14) return false;
   const inv = ['00000000000000','11111111111111','22222222222222','33333333333333','44444444444444','55555555555555','66666666666666','77777777777777','88888888888888','99999999999999'];
-  if (inv.includes(numeros)) return false;
-  let soma = 0, peso = 5;
-  for (let i = 0; i < 12; i++) { soma += parseInt(numeros[i]) * peso; peso = peso === 2 ? 9 : peso - 1; }
-  const d1 = soma % 11 < 2 ? 0 : 11 - (soma % 11);
-  if (parseInt(numeros[12]) !== d1) return false;
-  soma = 0; peso = 6;
-  for (let i = 0; i < 13; i++) { soma += parseInt(numeros[i]) * peso; peso = peso === 2 ? 9 : peso - 1; }
-  const d2 = soma % 11 < 2 ? 0 : 11 - (soma % 11);
-  return parseInt(numeros[13]) === d2;
+  if (inv.includes(n)) return false;
+  let s = 0, p = 5;
+  for (let i = 0; i < 12; i++) { s += parseInt(n[i]) * p; p = p === 2 ? 9 : p - 1; }
+  const d1 = s % 11 < 2 ? 0 : 11 - (s % 11);
+  if (parseInt(n[12]) !== d1) return false;
+  s = 0; p = 6;
+  for (let i = 0; i < 13; i++) { s += parseInt(n[i]) * p; p = p === 2 ? 9 : p - 1; }
+  const d2 = s % 11 < 2 ? 0 : 11 - (s % 11);
+  return parseInt(n[13]) === d2;
 }
 
 export interface DadosCNPJ {
-  razaoSocial: string; nomeFantasia: string; situacao: string; ativa: boolean;
+  razaoSocial: string;
+  nomeFantasia: string;
+  situacao: string;
+  ativa: boolean;
   endereco: { logradouro: string; numero: string; complemento: string; bairro: string; municipio: string; uf: string; cep: string; };
-  telefone: string; email: string;
+  telefone: string;
+  email: string;
 }
 
-export interface ResultadoValidacaoCNPJ { valido: boolean; dados?: DadosCNPJ; erro?: string; }
+export interface ResultadoValidacaoCNPJ {
+  valido: boolean;
+  dados?: DadosCNPJ;
+  erro?: string;
+}
 
 export async function buscarCNPJ(cnpj: string): Promise<ResultadoValidacaoCNPJ> {
-  const numeros = cnpj.replace(/\D/g, '');
-  if (!validarFormatoCNPJ(numeros)) return { valido: false, erro: 'CNPJ inválido. Verifique os números.' };
+  const n = cnpj.replace(/\D/g, '');
+  if (!validarFormatoCNPJ(n)) return { valido: false, erro: 'CNPJ inválido. Verifique os números.' };
   try {
-    const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${numeros}`, { method: 'GET', headers: { 'Accept': 'application/json' }, signal: AbortSignal.timeout(10000) });
-    if (response.status === 404) return { valido: false, erro: 'CNPJ não encontrado na Receita Federal.' };
-    if (!response.ok) return { valido: true };
-    const data = await response.json();
+    const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${n}`, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.status === 404) return { valido: false, erro: 'CNPJ não encontrado na Receita Federal.' };
+    if (!res.ok) { console.warn('BrasilAPI indisponivel, fallback matematico'); return { valido: true }; }
+    const d = await res.json();
     const dados: DadosCNPJ = {
-      razaoSocial: data.razao_social ?? '', nomeFantasia: data.nome_fantasia ?? data.razao_social ?? '',
-      situacao: data.descricao_situacao_cadastral ?? '', ativa: data.descricao_situacao_cadastral === 'ATIVA',
-      endereco: { logradouro: data.logradouro ?? '', numero: data.numero ?? '', complemento: data.complemento ?? '', bairro: data.bairro ?? '', municipio: data.municipio ?? '', uf: data.uf ?? '', cep: (data.cep ?? '').replace(/\D/g, '') },
-      telefone: data.ddd_telefone_1 ? data.ddd_telefone_1 : '', email: data.email ?? '',
+      razaoSocial: d.razao_social ?? '',
+      nomeFantasia: d.nome_fantasia ?? d.razao_social ?? '',
+      situacao: d.descricao_situacao_cadastral ?? '',
+      ativa: d.descricao_situacao_cadastral === 'ATIVA',
+      endereco: { logradouro: d.logradouro ?? '', numero: d.numero ?? '', complemento: d.complemento ?? '', bairro: d.bairro ?? '', municipio: d.municipio ?? '', uf: d.uf ?? '', cep: (d.cep ?? '').replace(/\D/g, '') },
+      telefone: d.ddd_telefone_1 ? `(${d.ddd_telefone_1.substring(0,2)}) ${d.ddd_telefone_1.substring(2)}` : '',
+      email: d.email ?? '',
     };
-    if (!dados.ativa) return { valido: false, erro: `CNPJ com situação "${dados.situacao}". Apenas empresas ATIVAS podem se cadastrar.`, dados };
+    if (!dados.ativa) return { valido: false, erro: `CNPJ com situacao "${dados.situacao}". Apenas empresas ATIVAS podem se cadastrar.`, dados };
     return { valido: true, dados };
-  } catch {
+  } catch (e: any) {
+    if (e?.name === 'TimeoutError') { console.warn('BrasilAPI timeout, fallback matematico'); return { valido: true }; }
+    console.error('Erro BrasilAPI:', e);
     return { valido: true };
   }
 }
 
 export function formatarCNPJ(cnpj: string): string {
   const n = cnpj.replace(/\D/g, '').substring(0, 14);
-  return n.replace(/^(\d{2})(\d)/, '$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3').replace(/\.(\d{3})(\d)/, '.$1/$2').replace(/(\d{4})(\d)/, '$1-$2');
+  return n.replace(/^(\d{2})(\d)/,'$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/,'$1.$2.$3').replace(/\.(\d{3})(\d)/,'.$1/$2').replace(/(\d{4})(\d)/,'$1-$2');
 }
