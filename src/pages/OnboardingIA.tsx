@@ -17,7 +17,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { buscarCNPJ } from '../utils/validators';
-import { doc, updateDoc, Timestamp } from 'firebase/firestore';
+import { doc, setDoc, Timestamp } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import useAuth from '../hooks/useAuth';
 import useImageUpload from '../hooks/useImageUpload';
@@ -260,7 +260,8 @@ const OnboardingIA: React.FC = () => {
     setSalvando(true);
 
     try {
-      await updateDoc(doc(db, 'pmes', usuario.uid), {
+      // setDoc com merge cria o doc se não existir, atualiza se existir
+      await setDoc(doc(db, 'pmes', usuario.uid), {
         nomeFantasia: dadosExtraidos.nomeFantasia ?? fallbackNome,
         cnpj: dadosExtraidos.cnpj ?? fallbackCNPJ.replace(/\D/g, ''),
         categoria: dadosExtraidos.categoria ?? fallbackCategoria,
@@ -268,13 +269,22 @@ const OnboardingIA: React.FC = () => {
         telefone: dadosExtraidos.telefone ?? null,
         imagemUrl: imagemUrl ?? null,
         status: 'ativo',
+        plano: 'free',
+        limiteOfertas: 10,
+        ofertasCriadas: 0,
+        ativa: true,
+        verificada: false,
+        createdAt: Timestamp.now(),
         updatedAt: Timestamp.now(),
-      });
+      }, { merge: true });
+      // Força refresh do token para pegar custom claim atualizada
+      await usuario.getIdToken(true);
       navigate('/dashboard', { replace: true });
-    } catch {
+    } catch (err) {
+      console.error('Erro ao concluir cadastro:', err);
       setSalvando(false);
     }
-  }, [usuario?.uid, dadosExtraidos, fallbackNome, fallbackCNPJ, fallbackCategoria, imagemUrl, navigate]);
+  }, [usuario, dadosExtraidos, fallbackNome, fallbackCNPJ, fallbackCategoria, imagemUrl, navigate]);
   // #endregion
 
   const progresso = Math.round(((passo - 1) / 4) * 100);
