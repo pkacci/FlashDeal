@@ -16,4 +16,4 @@ jobs:
           node-version: '20'
       - run: cd functions && npm install && npm run build
       - run: npm install -g firebase-tools
-      - run: firebase deploy --only functions --token "${{ secrets.FIREBASE_TOKEN }}" --project flashdeal-f590a
+      - run: firebase deploy --only functions --force --token "${{ secrets.FIREBASE_TOKEN }}" --project flashdeal-f590a
