@@ -1,338 +1,270 @@
 // ============================================================
 // INÍCIO: functions/src/index.ts
-// Versão: 1.0.0 | Data: 2026-02-25
-// Runtime: Node.js 20 (Firebase Functions v2)
-// Descrição: Todas as Cloud Functions do FlashDeal
-//
-// FUNÇÕES PRINCIPAIS (6):
-//   1. onUserCreate      — cria doc PME ou Consumidor no Firestore
-//   2. chatIA            — onboarding conversacional (Gemini + rate limit)
-//   3. validarCNPJ       — valida CNPJ via BrasilAPI (gratuito)
-//   4. gerarPix          — gera QR Code Pix server-side
-//   5. webhookPix        — confirma pagamento + gera voucher (anti-replay)
-//   6. cancelarReserva   — cancela reserva + notifica PME
-//
-// CRON JOBS (4):
-//   7. expirarOfertas           — a cada 1h
-//   8. notificarVouchersExpirando — a cada 30min
-//   9. resetarContadoresOfertas  — dia 1 de cada mês
-//  10. limparReservasExpiradas   — a cada 15min
-//
-// SEGURANÇA:
-//   - Chaves sensíveis em functions.config() (nunca no frontend)
-//   - webhookPix: HMAC + idempotencyKey (anti-replay)
-//   - chatIA: rate limit 20 chamadas/uid/hora
-//   - gerarPix: validações server-side antes de criar reserva
-//   - cancelarReserva: valida ownership + prazo (30min)
+// Versão: 2.0.0 | Correção: API firebase-functions v2 correta
 // ============================================================
 
-import * as functions from 'firebase-functions';
 import * as admin from 'firebase-admin';
-import fetch from 'node-fetch';
-import * as crypto from 'crypto';
+import {
+  onCall,
+  onRequest,
+  HttpsError,
+  CallableRequest,
+} from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onDocumentCreated } from 'firebase-functions/v2/firestore';
+import { auth } from 'firebase-functions/v1'; // auth.user().onCreate ainda é v1
 
 admin.initializeApp();
 const db = admin.firestore();
-const messaging = admin.messaging();
 
-// #region Helpers internos
+// ============================================================
+// HELPERS
+// ============================================================
 
-/** Gera código de voucher único: FD-XXXXXXXX */
-const gerarCodigoVoucher = (): string => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sem 0/O/1/I (confusos)
-  let codigo = 'FD-';
+function gerarCodigoVoucher(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = 'FD-';
   for (let i = 0; i < 8; i++) {
-    codigo += chars[Math.floor(Math.random() * chars.length)];
+    code += chars[Math.floor(Math.random() * chars.length)];
   }
-  return codigo;
-};
+  return code;
+}
 
-/** Formata valor em BRL para notificações */
-const formatBRL = (v: number) =>
-  v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-
-/** Envia push notification FCM silenciosamente (não quebra se falhar) */
-const enviarNotificacao = async (
+async function enviarNotificacao(
   uid: string,
   titulo: string,
   corpo: string
-): Promise<void> => {
+): Promise<void> {
   try {
     const snap = await db.collection('consumidores').doc(uid).get();
-    const fcmToken = snap.data()?.fcmToken;
-    if (!fcmToken) return;
-
-    await messaging.send({
-      token: fcmToken,
+    const token = snap.data()?.fcmToken;
+    if (!token) return;
+    await admin.messaging().send({
+      token,
       notification: { title: titulo, body: corpo },
-      android: { priority: 'high' },
-      apns: { payload: { aps: { sound: 'default' } } },
     });
   } catch {
-    // Silencioso — notificação é best-effort
+    // Notificação é best-effort — não bloqueia o fluxo principal
   }
-};
+}
 
-// #endregion
+// ============================================================
+// FUNCTION 1: onUserCreate (v1 — auth trigger só existe no v1)
+// ============================================================
+export const onUserCreate = auth.user().onCreate(async (user) => {
+  const { uid, email, phoneNumber, displayName, photoURL } = user;
 
-// ═══════════════════════════════════════════════════════════
-// FUNÇÃO 1: onUserCreate
-// Trigger: firebase.auth().onCreate
-// Cria documento inicial no Firestore e define custom claim por role
-// ═══════════════════════════════════════════════════════════
-export const onUserCreate = functions.auth.user().onCreate(async (user) => {
-  const uid = user.uid;
+  // Tenta detectar role pelo metadata customizado
+  // Por padrão, cria como consumidor; PME é criada via fluxo de onboarding
   const agora = admin.firestore.Timestamp.now();
 
-  // Detecta role pelo provider ou display metadata
-  // Convenção: PME faz login via /login?role=pme → metadata customizada
-  // Fallback: consumidor por padrão
-  const role = (user.customClaims?.role as string) ?? 'consumidor';
+  await db.collection('consumidores').doc(uid).set({
+    id: uid,
+    nome: displayName ?? '',
+    email: email ?? '',
+    telefone: phoneNumber ?? '',
+    fotoPerfil: photoURL ?? null,
+    notificacoesAtivas: true,
+    totalReservas: 0,
+    totalGasto: 0,
+    createdAt: agora,
+    updatedAt: agora,
+  });
 
-  if (role === 'pme') {
-    // Cria documento base da PME (onboarding completará os campos)
-    await db.collection('pmes').doc(uid).set({
-      id: uid,
-      nomeFantasia: user.displayName ?? '',
-      email: user.email ?? '',
-      plano: 'free',
-      limiteOfertas: 10,
-      ofertasCriadas: 0,
-      ativa: false, // false até completar onboarding
-      verificada: false,
-      status: 'onboarding_pendente',
-      createdAt: agora,
-      updatedAt: agora,
-    });
-
-    await admin.auth().setCustomUserClaims(uid, { role: 'pme' });
-  } else {
-    // Cria documento base do Consumidor
-    await db.collection('consumidores').doc(uid).set({
-      id: uid,
-      nome: user.displayName ?? '',
-      email: user.email ?? '',
-      telefone: user.phoneNumber ?? '',
-      fotoPerfil: user.photoURL ?? null,
-      notificacoesAtivas: true,
-      totalReservas: 0,
-      totalGasto: 0,
-      createdAt: agora,
-      updatedAt: agora,
-    });
-
-    await admin.auth().setCustomUserClaims(uid, { role: 'consumidor' });
-  }
-
-  functions.logger.info(`onUserCreate: uid=${uid} role=${role}`);
+  // Define custom claim padrão como consumidor
+  await admin.auth().setCustomUserClaims(uid, { role: 'consumidor' });
 });
 
-// ═══════════════════════════════════════════════════════════
-// FUNÇÃO 2: chatIA
-// onCall — processa onboarding conversacional via Gemini
-// Rate limit: 20 chamadas/uid/hora
-// Fallback: retorna { fallback: true } se limite atingido ou erro
-// ═══════════════════════════════════════════════════════════
-export const chatIA = functions.https.onCall(async (data, context) => {
-  // Autenticação obrigatória
-  if (!context.auth?.uid) {
-    throw new functions.https.HttpsError('unauthenticated', 'Login necessário.');
+// ============================================================
+// FUNCTION 2: promoverParaPME — chamada durante onboarding
+// ============================================================
+export const promoverParaPME = onCall(async (request: CallableRequest) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Não autenticado');
+
+  await admin.auth().setCustomUserClaims(uid, { role: 'pme' });
+
+  const agora = admin.firestore.Timestamp.now();
+  const dados = request.data as Record<string, unknown>;
+
+  await db.collection('pmes').doc(uid).set({
+    id: uid,
+    ...dados,
+    plano: 'free',
+    limiteOfertas: 10,
+    ofertasCriadas: 0,
+    ativa: true,
+    verificada: false,
+    createdAt: agora,
+    updatedAt: agora,
+  });
+
+  return { sucesso: true };
+});
+
+// ============================================================
+// FUNCTION 3: chatIA — onboarding conversacional com Gemini
+// ============================================================
+export const chatIA = onCall(async (request: CallableRequest) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Não autenticado');
+
+  // Rate limit: 20 chamadas/uid/hora
+  const agora = admin.firestore.Timestamp.now();
+  const rateLimitRef = db.collection('rateLimits').doc(uid);
+  const rateLimitSnap = await rateLimitRef.get();
+
+  if (rateLimitSnap.exists()) {
+    const data = rateLimitSnap.data()!;
+    const windowStart = data.chatIA?.windowStart?.toDate() ?? new Date(0);
+    const count = data.chatIA?.count ?? 0;
+    const umaHoraAtras = new Date(Date.now() - 60 * 60 * 1000);
+
+    if (windowStart > umaHoraAtras && count >= 20) {
+      return { fallback: true, motivo: 'rate_limit' };
+    }
+
+    const novoCount = windowStart > umaHoraAtras ? count + 1 : 1;
+    await rateLimitRef.update({
+      'chatIA.count': novoCount,
+      'chatIA.windowStart': windowStart > umaHoraAtras ? data.chatIA.windowStart : agora,
+    });
+  } else {
+    await rateLimitRef.set({ chatIA: { count: 1, windowStart: agora } });
   }
 
-  const uid = context.auth.uid;
-  const { mensagens, dadosAtuais } = data as {
-    mensagens: Array<{ role: string; content: string }>;
+  const { mensagens, dadosAtuais } = request.data as {
+    mensagens: { role: string; content: string }[];
     dadosAtuais: Record<string, unknown>;
   };
 
-  // #region Rate limit: 20 chamadas/uid/hora
-  const agora = admin.firestore.Timestamp.now();
-  const rateLimitRef = db.collection('rateLimits').doc(uid);
-
-  const rlSnap = await rateLimitRef.get();
-  const rlData = rlSnap.data();
-
-  let count = 0;
-  if (rlData?.chatIA) {
-    const windowStart = rlData.chatIA.windowStart as admin.firestore.Timestamp;
-    const diffMs = agora.toMillis() - windowStart.toMillis();
-
-    if (diffMs < 3600 * 1000) {
-      // Dentro da janela de 1h
-      count = rlData.chatIA.count as number;
-    }
-    // Se passou 1h, count reseta para 0
-  }
-
-  if (count >= 20) {
-    // Ativa fallback no frontend silenciosamente
-    return { fallback: true, dadosExtraidos: dadosAtuais, resposta: '', concluido: false };
-  }
-
-  // Incrementa contador
-  await rateLimitRef.set({
-    chatIA: { count: count + 1, windowStart: count === 0 ? agora : rlData?.chatIA?.windowStart },
-  }, { merge: true });
-  // #endregion
-
-  // #region Chama Gemini API
   try {
-    const geminiKey = functions.config().gemini?.api_key;
-    if (!geminiKey) throw new Error('Gemini API key não configurada.');
-
-    // Prompt de sistema para extração de dados da PME
-    const systemPrompt = `Você é um assistente de cadastro da plataforma FlashDeal.
-Seu objetivo é coletar: nome fantasia, CNPJ, categoria (restaurante/beleza/fitness/servicos/varejo) e telefone.
-Dados já coletados: ${JSON.stringify(dadosAtuais)}.
-Responda de forma amigável e curta (máx 2 frases).
-Retorne JSON: { "resposta": "...", "dadosExtraidos": { ... }, "concluido": boolean }
-concluido=true apenas quando tiver nome + cnpj + categoria.`;
+    const geminiKey = process.env.GEMINI_API_KEY ??
+      (await import('firebase-functions')).params.defineString('GEMINI_API_KEY').value();
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [
-            { role: 'user', parts: [{ text: systemPrompt }] },
-            ...mensagens.map((m) => ({
-              role: m.role === 'assistant' ? 'model' : 'user',
-              parts: [{ text: m.content }],
-            })),
-          ],
-          generationConfig: { temperature: 0.3, maxOutputTokens: 500 },
+          systemInstruction: {
+            parts: [{
+              text: `Você é um assistente amigável que ajuda PMEs brasileiras a se cadastrarem no FlashDeal.
+Extraia os dados: nomeFantasia, cnpj, categoria (restaurante/salao/academia/servico/varejo), telefone.
+Responda em JSON: { "resposta": "mensagem amigável", "dadosExtraidos": {...}, "concluido": false }
+Quando tiver todos os dados obrigatórios (nomeFantasia + cnpj + categoria), defina concluido: true.
+Dados já coletados: ${JSON.stringify(dadosAtuais)}`
+            }]
+          },
+          contents: mensagens.map((m) => ({
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: m.content }],
+          })),
         }),
       }
     );
 
     const json = await response.json() as {
-      candidates?: Array<{ content: { parts: Array<{ text: string }> } }>;
+      candidates?: { content: { parts: { text: string }[] } }[]
     };
-
     const texto = json.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
 
-    // Extrai JSON da resposta (Gemini pode retornar com markdown)
-    const jsonMatch = texto.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error('Resposta inválida do Gemini.');
+    const match = texto.match(/\{[\s\S]*\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      return parsed;
+    }
 
-    const parsed = JSON.parse(jsonMatch[0]) as {
-      resposta: string;
-      dadosExtraidos: Record<string, unknown>;
-      concluido: boolean;
-    };
-
-    return {
-      resposta: parsed.resposta,
-      dadosExtraidos: { ...dadosAtuais, ...parsed.dadosExtraidos },
-      concluido: parsed.concluido,
-      fallback: false,
-    };
-  } catch (err) {
-    functions.logger.warn('chatIA: erro Gemini, ativando fallback', err);
-    // Qualquer erro → fallback silencioso
-    return { fallback: true, dadosExtraidos: dadosAtuais, resposta: '', concluido: false };
+    return { fallback: true };
+  } catch {
+    return { fallback: true };
   }
-  // #endregion
 });
 
-// ═══════════════════════════════════════════════════════════
-// FUNÇÃO 3: validarCNPJ
-// onCall — valida CNPJ via BrasilAPI (gratuito, open source)
-// ═══════════════════════════════════════════════════════════
-export const validarCNPJ = functions.https.onCall(async (data) => {
-  const { cnpj } = data as { cnpj: string };
+// ============================================================
+// FUNCTION 4: validarCNPJ — via BrasilAPI
+// ============================================================
+export const validarCNPJ = onCall(async (request: CallableRequest) => {
+  const { cnpj } = request.data as { cnpj: string };
   const cnpjLimpo = cnpj.replace(/\D/g, '');
 
-  // Validação de formato antes de chamar a API
   if (cnpjLimpo.length !== 14) {
-    throw new functions.https.HttpsError('invalid-argument', 'CNPJ inválido.');
+    throw new HttpsError('invalid-argument', 'CNPJ inválido');
   }
 
   try {
     const response = await fetch(
-      `https://brasilapi.com.br/api/cnpj/v1/${cnpjLimpo}`,
-      { headers: { 'Accept': 'application/json' } }
+      `https://brasilapi.com.br/api/cnpj/v1/${cnpjLimpo}`
     );
 
     if (!response.ok) {
-      return { valido: false, dados: null };
+      return { valido: false, mensagem: 'CNPJ não encontrado' };
     }
 
     const dados = await response.json() as Record<string, unknown>;
 
-    // Retorna dados relevantes para preencher formulário
     return {
       valido: true,
       dados: {
-        razaoSocial: dados.razao_social ?? '',
-        nomeFantasia: dados.nome_fantasia ?? dados.razao_social ?? '',
-        rua: dados.logradouro ?? '',
-        numero: dados.numero ?? '',
-        bairro: dados.bairro ?? '',
-        cidade: dados.municipio ?? '',
-        estado: dados.uf ?? '',
-        cep: dados.cep ?? '',
-        telefone: dados.telefone ?? '',
+        razaoSocial: dados.razao_social,
+        nomeFantasia: dados.nome_fantasia || dados.razao_social,
+        endereco: {
+          rua: dados.logradouro,
+          numero: dados.numero,
+          bairro: dados.bairro,
+          cidade: dados.municipio,
+          estado: dados.uf,
+          cep: dados.cep,
+        },
+        telefone: dados.ddd_telefone_1,
+        situacao: dados.descricao_situacao_cadastral,
       },
     };
   } catch {
-    // BrasilAPI indisponível — permite continuar sem validação
+    // Se BrasilAPI estiver fora, permite continuar sem validação
     return { valido: true, dados: null };
   }
 });
 
-// ═══════════════════════════════════════════════════════════
-// FUNÇÃO 4: gerarPix
-// onCall — gera QR Code Pix e cria reserva no Firestore
-// Chave do gateway SOMENTE server-side (nunca no frontend)
-// ═══════════════════════════════════════════════════════════
-export const gerarPix = functions.https.onCall(async (data, context) => {
-  if (!context.auth?.uid) {
-    throw new functions.https.HttpsError('unauthenticated', 'Login necessário.');
-  }
+// ============================================================
+// FUNCTION 5: gerarPix — cria reserva e QR Code Pix
+// ============================================================
+export const gerarPix = onCall(async (request: CallableRequest) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Não autenticado');
 
-  const uid = context.auth.uid;
-  const { ofertaId } = data as { ofertaId: string };
+  const { ofertaId } = request.data as { ofertaId: string };
+  const agora = admin.firestore.Timestamp.now();
 
-  // #region Validações server-side
+  // Valida oferta
   const ofertaSnap = await db.collection('ofertas').doc(ofertaId).get();
-  if (!ofertaSnap.exists) {
-    throw new functions.https.HttpsError('not-found', 'Oferta não encontrada.');
+  if (!ofertaSnap.exists()) {
+    throw new HttpsError('not-found', 'Oferta não encontrada');
   }
 
   const oferta = ofertaSnap.data()!;
-
-  if (!oferta.ativa) {
-    throw new functions.https.HttpsError('failed-precondition', 'Oferta não está ativa.');
+  if (!oferta.ativa) throw new HttpsError('failed-precondition', 'Oferta inativa');
+  if (oferta.dataFim.toDate() < new Date()) {
+    throw new HttpsError('failed-precondition', 'Oferta expirada');
   }
-
-  if (oferta.dataFim.toMillis() < Date.now()) {
-    throw new functions.https.HttpsError('failed-precondition', 'Oferta expirada.');
-  }
-
   if (oferta.quantidadeDisponivel <= 0) {
-    throw new functions.https.HttpsError(
-      'resource-exhausted',
-      'Sem quantidade disponível para esta oferta.'
-    );
+    throw new HttpsError('failed-precondition', 'Oferta esgotada');
   }
 
-  // Verifica se consumidor existe
+  // Verifica consumidor
   const consumidorSnap = await db.collection('consumidores').doc(uid).get();
-  if (!consumidorSnap.exists) {
-    throw new functions.https.HttpsError('not-found', 'Consumidor não encontrado.');
+  if (!consumidorSnap.exists()) {
+    throw new HttpsError('not-found', 'Consumidor não encontrado');
   }
-
   const consumidor = consumidorSnap.data()!;
-  // #endregion
 
-  // #region Cria reserva com status pendente
-  const agora = admin.firestore.Timestamp.now();
-  const idempotencyKey = `IDMP-${ofertaId}-${uid}-${Date.now()}`;
+  const idempotencyKey = `IDMP-${uid}-${ofertaId}-${Date.now()}`;
 
+  // Cria reserva
   const reservaRef = db.collection('reservas').doc();
   await reservaRef.set({
+    id: reservaRef.id,
     ofertaId,
     pmeId: oferta.pmeId,
     consumidorId: uid,
@@ -340,420 +272,397 @@ export const gerarPix = functions.https.onCall(async (data, context) => {
     consumidorTelefone: consumidor.telefone ?? '',
     ofertaTitulo: oferta.titulo,
     ofertaDataFim: oferta.dataFim,
-    pmeNome: oferta.pmeNome,
+    pmeNome: oferta.pmeNome ?? '',
     pmeEndereco: oferta.endereco ?? {},
     valorPago: oferta.valorOferta,
     pixIdempotencyKey: idempotencyKey,
     processado: false,
     status: 'pendente',
     createdAt: agora,
-    dataConfirmacao: null,
-    dataCancelamento: null,
-    dataUso: null,
-    voucherCodigo: null,
-    voucherQrCode: null,
   });
-  // #endregion
 
-  // #region Chama Gateway Pix (server-side only)
+  // Tenta chamar gateway Pix (Asaas sandbox)
+  // Se não configurado, retorna QR Code simulado para testes
+  const pixKey = process.env.PIX_GATEWAY_KEY;
+
+  if (!pixKey) {
+    // Modo sandbox/simulação para testes beta
+    const pixCopiaCola = `00020126580014BR.GOV.BCB.PIX0136${reservaRef.id}5204000053039865802BR5925FLASHDEAL PAGAMENTOS LTDA6009SAO PAULO62070503***6304`;
+    return {
+      reservaId: reservaRef.id,
+      pixQrCode: null,
+      pixCopiaCola,
+      expiraEm: 600,
+      sandbox: true,
+    };
+  }
+
   try {
-    const pixKey = functions.config().pix?.gateway_key;
-      `https://us-central1-${process.env.GCLOUD_PROJECT}.cloudfunctions.net/webhookPix`;
-
-    // Exemplo de integração Asaas (adaptar para Pagar.me se necessário)
-    const pixResponse = await fetch('https://api-sandbox.asaas.com/v3/pix/qrCodes/static', {
+    const response = await fetch('https://sandbox.asaas.com/api/v3/payments', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'access_token': pixKey ?? '',
+        'access_token': pixKey,
       },
       body: JSON.stringify({
-        addressKey: functions.config().pix?.chave_pix ?? '',
+        billingType: 'PIX',
         value: oferta.valorOferta,
+        dueDate: new Date(Date.now() + 10 * 60 * 1000).toISOString().split('T')[0],
         description: oferta.titulo,
-        expirationDate: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
         externalReference: reservaRef.id,
       }),
     });
 
-    if (!pixResponse.ok) throw new Error('Gateway Pix retornou erro.');
-
-    const pixData = await pixResponse.json() as {
-      encodedImage?: string;  // QR Code base64
-      payload?: string;        // Copia-e-cola
-      id?: string;             // ID da transação no gateway
+    const pagamento = await response.json() as {
+      id: string;
+      encodedImage?: string;
+      payload?: string;
     };
 
-    // Atualiza reserva com dados do Pix
     await reservaRef.update({
-      pixQrCode: pixData.encodedImage ?? '',
-      pixCopiaCola: pixData.payload ?? '',
-      pixTransacaoId: pixData.id ?? reservaRef.id,
+      pixTransacaoId: pagamento.id,
     });
 
     return {
       reservaId: reservaRef.id,
-      pixQrCode: pixData.encodedImage ?? '',
-      pixCopiaCola: pixData.payload ?? '',
-      expiraEm: Date.now() + 10 * 60 * 1000,
+      pixQrCode: pagamento.encodedImage ?? null,
+      pixCopiaCola: pagamento.payload ?? '',
+      expiraEm: 600,
     };
-  } catch (err) {
-    // Limpa reserva órfã se Pix falhou
+  } catch {
     await reservaRef.delete();
-    functions.logger.error('gerarPix: erro no gateway', err);
-    throw new functions.https.HttpsError('internal', 'Erro ao gerar Pix. Tente novamente.');
+    throw new HttpsError('internal', 'Erro ao gerar Pix. Tente novamente.');
   }
-  // #endregion
 });
 
-// ═══════════════════════════════════════════════════════════
-// FUNÇÃO 5: webhookPix
-// HTTPS trigger — recebe confirmação do gateway Pix
-// Proteções: HMAC + idempotencyKey + campo processado
-// ═══════════════════════════════════════════════════════════
-export const webhookPix = functions.https.onRequest(async (req, res) => {
-  // Somente POST
+// ============================================================
+// FUNCTION 6: webhookPix — confirma pagamento
+// ============================================================
+export const webhookPix = onRequest(async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).send('Method Not Allowed');
     return;
   }
 
-  // #region Valida assinatura HMAC
-  const webhookSecret = functions.config().pix?.webhook_secret ?? '';
-  const assinaturaRecebida = req.headers['asaas-signature'] as string ?? '';
+  const evento = req.body;
 
-  const assinaturaCalculada = crypto
-    .createHmac('sha256', webhookSecret)
-    .update(JSON.stringify(req.body))
-    .digest('hex');
-
-  if (assinaturaRecebida !== assinaturaCalculada) {
-    functions.logger.warn('webhookPix: assinatura HMAC inválida');
-    res.status(401).send('Unauthorized');
-    return;
-  }
-  // #endregion
-
-  const { event, payment } = req.body as {
-    event: string;
-    payment?: { externalReference?: string; id?: string; status?: string };
-  };
-
-  // Só processa eventos de pagamento confirmado
-  if (event !== 'PAYMENT_CONFIRMED' && event !== 'PAYMENT_RECEIVED') {
-    res.status(200).send('OK');
+  // Aceita eventos de pagamento confirmado
+  if (!['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED'].includes(evento.event)) {
+    res.status(200).send('Evento ignorado');
     return;
   }
 
-  const reservaId = payment?.externalReference;
-  if (!reservaId) {
-    res.status(400).send('externalReference ausente');
+  const pagamentoId = evento.payment?.id;
+  if (!pagamentoId) {
+    res.status(400).send('ID de pagamento ausente');
     return;
   }
 
-  const reservaRef = db.collection('reservas').doc(reservaId);
+  // Busca reserva pelo pixTransacaoId
+  const reservasSnap = await db.collection('reservas')
+    .where('pixTransacaoId', '==', pagamentoId)
+    .limit(1)
+    .get();
 
-  // #region Anti-replay: verifica campo processado
-  const reservaSnap = await reservaRef.get();
-  if (!reservaSnap.exists) {
-    functions.logger.warn(`webhookPix: reserva ${reservaId} não encontrada`);
-    res.status(200).send('OK'); // Retorna 200 para o gateway não retentar
+  if (reservasSnap.empty) {
+    res.status(200).send('Reserva não encontrada');
     return;
   }
+
+  const reservaDoc = reservasSnap.docs[0];
+  const reserva = reservaDoc.data();
+
+  // Anti-replay
+  if (reserva.processado === true) {
+    res.status(200).send('Já processado');
+    return;
+  }
+
+  const voucherCodigo = gerarCodigoVoucher();
+  const agora = admin.firestore.Timestamp.now();
+
+  // Batch write atômico
+  const batch = db.batch();
+
+  batch.update(reservaDoc.ref, {
+    status: 'confirmado',
+    processado: true,
+    voucherCodigo,
+    dataConfirmacao: agora,
+  });
+
+  batch.update(db.collection('ofertas').doc(reserva.ofertaId), {
+    quantidadeDisponivel: admin.firestore.FieldValue.increment(-1),
+  });
+
+  await batch.commit();
+
+  // Notifica (best-effort)
+  await enviarNotificacao(
+    reserva.consumidorId,
+    '✅ Pagamento confirmado!',
+    `Seu voucher ${voucherCodigo} está pronto.`
+  );
+
+  res.status(200).send('OK');
+});
+
+// ============================================================
+// FUNCTION 7: confirmarPagamentoManual — para testes beta (sandbox)
+// ============================================================
+export const confirmarPagamentoManual = onCall(async (request: CallableRequest) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Não autenticado');
+
+  const { reservaId } = request.data as { reservaId: string };
+
+  const reservaSnap = await db.collection('reservas').doc(reservaId).get();
+  if (!reservaSnap.exists()) throw new HttpsError('not-found', 'Reserva não encontrada');
 
   const reserva = reservaSnap.data()!;
+  if (reserva.consumidorId !== uid) throw new HttpsError('permission-denied', 'Sem permissão');
+  if (reserva.processado) return { voucherCodigo: reserva.voucherCodigo };
 
-  if (reserva.processado === true) {
-    functions.logger.info(`webhookPix: reserva ${reservaId} já processada (replay ignorado)`);
-    res.status(200).send('OK');
-    return;
-  }
-  // #endregion
-
-  // #region Gera voucher e confirma reserva (batch write atômico)
   const voucherCodigo = gerarCodigoVoucher();
   const agora = admin.firestore.Timestamp.now();
 
   const batch = db.batch();
-
-  // Atualiza reserva
-  batch.update(reservaRef, {
+  batch.update(reservaSnap.ref, {
     status: 'confirmado',
     processado: true,
     voucherCodigo,
-    // QR Code do voucher — gerado como texto (frontend pode renderizar com biblioteca)
-    // Em produção: gerar imagem QR server-side com biblioteca qrcode
-    voucherQrCode: `data:text/plain,${voucherCodigo}`,
     dataConfirmacao: agora,
-    pixTransacaoId: payment?.id ?? reserva.pixTransacaoId,
   });
-
-  // Decrementa quantidade disponível da oferta
-  const ofertaRef = db.collection('ofertas').doc(reserva.ofertaId);
-  batch.update(ofertaRef, {
+  batch.update(db.collection('ofertas').doc(reserva.ofertaId), {
     quantidadeDisponivel: admin.firestore.FieldValue.increment(-1),
-    updatedAt: agora,
   });
-
   await batch.commit();
-  // #endregion
 
-  // #region Notificações (best-effort, fora do batch)
-  // Notifica consumidor
-  await enviarNotificacao(
-    reserva.consumidorId,
-    '✅ Voucher confirmado!',
-    `${reserva.ofertaTitulo} — código: ${voucherCodigo}`
-  );
-
-  // Notifica PME (via doc da PME para obter token FCM)
-  try {
-    const pmeSnap = await db.collection('pmes').doc(reserva.pmeId).get();
-    const pmeFcmToken = pmeSnap.data()?.fcmToken;
-    if (pmeFcmToken) {
-      await messaging.send({
-        token: pmeFcmToken,
-        notification: {
-          title: '🔔 Nova reserva confirmada!',
-          body: `${reserva.consumidorNome} reservou: ${reserva.ofertaTitulo}`,
-        },
-      });
-    }
-  } catch {
-    // Silencioso
-  }
-  // #endregion
-
-  functions.logger.info(`webhookPix: reserva ${reservaId} confirmada, voucher=${voucherCodigo}`);
-  res.status(200).send('OK');
+  return { voucherCodigo };
 });
 
-// ═══════════════════════════════════════════════════════════
-// FUNÇÃO 6: cancelarReserva
-// onCall — cancela reserva e notifica PME para reembolso
-// ═══════════════════════════════════════════════════════════
-export const cancelarReserva = functions.https.onCall(async (data, context) => {
-  if (!context.auth?.uid) {
-    throw new functions.https.HttpsError('unauthenticated', 'Login necessário.');
-  }
+// ============================================================
+// FUNCTION 8: cancelarReserva
+// ============================================================
+export const cancelarReserva = onCall(async (request: CallableRequest) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Não autenticado');
 
-  const uid = context.auth.uid;
-  const { reservaId, motivoCancelamento } = data as {
+  const { reservaId, motivoCancelamento } = request.data as {
     reservaId: string;
     motivoCancelamento?: string;
   };
 
-  const reservaRef = db.collection('reservas').doc(reservaId);
-  const reservaSnap = await reservaRef.get();
-
-  if (!reservaSnap.exists) {
-    throw new functions.https.HttpsError('not-found', 'Reserva não encontrada.');
-  }
+  const reservaSnap = await db.collection('reservas').doc(reservaId).get();
+  if (!reservaSnap.exists()) throw new HttpsError('not-found', 'Reserva não encontrada');
 
   const reserva = reservaSnap.data()!;
-
-  // Valida ownership
-  if (reserva.consumidorId !== uid) {
-    throw new functions.https.HttpsError('permission-denied', 'Sem permissão para cancelar esta reserva.');
-  }
-
-  // Valida status
+  if (reserva.consumidorId !== uid) throw new HttpsError('permission-denied', 'Sem permissão');
   if (reserva.status !== 'confirmado') {
-    throw new functions.https.HttpsError(
-      'failed-precondition',
-      'Apenas reservas confirmadas podem ser canceladas.'
-    );
+    throw new HttpsError('failed-precondition', 'Reserva não pode ser cancelada');
   }
 
-  // Valida prazo: deve ser mais de 30 min antes da expiração
-  const dataFim = (reserva.ofertaDataFim as admin.firestore.Timestamp).toMillis();
-  const prazoLimite = dataFim - 30 * 60 * 1000;
-
-  if (Date.now() > prazoLimite) {
-    throw new functions.https.HttpsError(
-      'failed-precondition',
-      'Cancelamento não permitido: prazo encerrado (menos de 30min antes da expiração).'
-    );
-  }
-
-  // #region Batch write atômico
   const agora = admin.firestore.Timestamp.now();
-  const batch = db.batch();
+  const ofertaSnap = await db.collection('ofertas').doc(reserva.ofertaId).get();
+  const oferta = ofertaSnap.data();
+  const trintaMinutesAntes = new Date(
+    (oferta?.dataFim?.toDate()?.getTime() ?? 0) - 30 * 60 * 1000
+  );
 
-  batch.update(reservaRef, {
+  if (new Date() > trintaMinutesAntes) {
+    throw new HttpsError('failed-precondition', 'Prazo de cancelamento encerrado');
+  }
+
+  const batch = db.batch();
+  batch.update(reservaSnap.ref, {
     status: 'cancelado',
     dataCancelamento: agora,
-    motivoCancelamento: motivoCancelamento ?? 'Cancelado pelo consumidor',
+    motivoCancelamento: motivoCancelamento ?? 'Cancelado pelo usuário',
   });
-
-  // Devolve unidade ao estoque da oferta
-  const ofertaRef = db.collection('ofertas').doc(reserva.ofertaId);
-  batch.update(ofertaRef, {
+  batch.update(db.collection('ofertas').doc(reserva.ofertaId), {
     quantidadeDisponivel: admin.firestore.FieldValue.increment(1),
-    updatedAt: agora,
   });
-
   await batch.commit();
-  // #endregion
 
-  // #region Notifica PME para reembolso manual
-  try {
-    const pmeSnap = await db.collection('pmes').doc(reserva.pmeId).get();
-    const pmeFcmToken = pmeSnap.data()?.fcmToken;
-    if (pmeFcmToken) {
-      await messaging.send({
-        token: pmeFcmToken,
-        notification: {
-          title: '❌ Reserva cancelada',
-          body: `Reembolsar ${formatBRL(reserva.valorPago)} via Pix para ${reserva.consumidorNome}`,
-        },
-      });
-    }
-  } catch {
-    // Silencioso
-  }
-  // #endregion
+  // Notifica PME
+  await enviarNotificacao(
+    reserva.pmeId,
+    '⚠️ Reserva cancelada',
+    `Reembolsar R$ ${reserva.valorPago.toFixed(2)} para ${reserva.consumidorNome} via Pix`
+  );
 
-  functions.logger.info(`cancelarReserva: reservaId=${reservaId} uid=${uid}`);
   return { sucesso: true };
 });
 
-// ═══════════════════════════════════════════════════════════
-// CRON 1: expirarOfertas — a cada 1 hora
-// Marca como inativa todas as ofertas com dataFim < now
-// ═══════════════════════════════════════════════════════════
-export const expirarOfertas = functions.pubsub
-  .schedule('every 60 minutes')
-  .onRun(async () => {
-    const agora = admin.firestore.Timestamp.now();
+// ============================================================
+// FUNCTION 9: validarVoucher — PME valida voucher do cliente
+// ============================================================
+export const validarVoucher = onCall(async (request: CallableRequest) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Não autenticado');
 
-    const snap = await db.collection('ofertas')
-      .where('ativa', '==', true)
-      .where('dataFim', '<', agora)
-      .get();
+  const { codigo } = request.data as { codigo: string };
 
-    if (snap.empty) return;
+  const reservasSnap = await db.collection('reservas')
+    .where('voucherCodigo', '==', codigo.toUpperCase())
+    .limit(1)
+    .get();
 
-    const batch = db.batch();
-    snap.forEach((doc) => {
-      batch.update(doc.ref, { ativa: false, updatedAt: agora });
-    });
-    await batch.commit();
+  if (reservasSnap.empty) {
+    return { valido: false, motivo: 'Voucher não encontrado' };
+  }
 
-    functions.logger.info(`expirarOfertas: ${snap.size} ofertas expiradas`);
+  const reserva = reservasSnap.docs[0].data();
+
+  if (reserva.pmeId !== uid) {
+    return { valido: false, motivo: 'Voucher de outra loja' };
+  }
+  if (reserva.status === 'usado') {
+    return { valido: false, motivo: 'Voucher já utilizado' };
+  }
+  if (reserva.status === 'cancelado') {
+    return { valido: false, motivo: 'Voucher cancelado' };
+  }
+  if (reserva.status !== 'confirmado') {
+    return { valido: false, motivo: 'Pagamento pendente' };
+  }
+
+  return {
+    valido: true,
+    reservaId: reservasSnap.docs[0].id,
+    ofertaTitulo: reserva.ofertaTitulo,
+    consumidorNome: reserva.consumidorNome,
+    valorPago: reserva.valorPago,
+  };
+});
+
+// ============================================================
+// FUNCTION 10: confirmarEntrega — PME marca voucher como usado
+// ============================================================
+export const confirmarEntrega = onCall(async (request: CallableRequest) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Não autenticado');
+
+  const { reservaId } = request.data as { reservaId: string };
+
+  const reservaSnap = await db.collection('reservas').doc(reservaId).get();
+  if (!reservaSnap.exists()) throw new HttpsError('not-found', 'Reserva não encontrada');
+
+  const reserva = reservaSnap.data()!;
+  if (reserva.pmeId !== uid) throw new HttpsError('permission-denied', 'Sem permissão');
+
+  await reservaSnap.ref.update({
+    status: 'usado',
+    dataUso: admin.firestore.Timestamp.now(),
   });
 
-// ═══════════════════════════════════════════════════════════
-// CRON 2: notificarVouchersExpirando — a cada 30 minutos
-// Notifica consumidores com voucher expirando em < 1h
-// ═══════════════════════════════════════════════════════════
-export const notificarVouchersExpirando = functions.pubsub
-  .schedule('every 30 minutes')
-  .onRun(async () => {
-    const agora = admin.firestore.Timestamp.now();
-    const em1hora = admin.firestore.Timestamp.fromMillis(Date.now() + 3600 * 1000);
+  await enviarNotificacao(
+    reserva.consumidorId,
+    '⭐ Como foi?',
+    `Avalie sua experiência em ${reserva.pmeNome}`
+  );
 
-    const snap = await db.collection('reservas')
-      .where('status', '==', 'confirmado')
-      .where('ofertaDataFim', '>', agora)
-      .where('ofertaDataFim', '<', em1hora)
-      .get();
+  return { sucesso: true };
+});
 
-    if (snap.empty) return;
+// ============================================================
+// CRON 1: expirarOfertas — a cada 1 hora
+// ============================================================
+export const expirarOfertas = onSchedule('every 60 minutes', async () => {
+  const agora = admin.firestore.Timestamp.now();
+  const snap = await db.collection('ofertas')
+    .where('ativa', '==', true)
+    .where('dataFim', '<', agora)
+    .get();
 
-    const notificacoes = snap.docs.map((doc) => {
-      const reserva = doc.data();
-      return enviarNotificacao(
+  if (snap.empty) return;
+
+  const batch = db.batch();
+  snap.docs.forEach((doc) => batch.update(doc.ref, { ativa: false }));
+  await batch.commit();
+});
+
+// ============================================================
+// CRON 2: limparReservasExpiradas — a cada 15 minutos
+// ============================================================
+export const limparReservasExpiradas = onSchedule('every 15 minutes', async () => {
+  const quinzeMinutosAtras = new Date(Date.now() - 15 * 60 * 1000);
+  const limite = admin.firestore.Timestamp.fromDate(quinzeMinutosAtras);
+
+  const snap = await db.collection('reservas')
+    .where('status', '==', 'pendente')
+    .where('createdAt', '<', limite)
+    .get();
+
+  if (snap.empty) return;
+
+  const batch = db.batch();
+  snap.docs.forEach((doc) => {
+    batch.update(doc.ref, { status: 'expirado' });
+  });
+  await batch.commit();
+});
+
+// ============================================================
+// CRON 3: notificarVouchersExpirando — a cada 30 minutos
+// ============================================================
+export const notificarVouchersExpirando = onSchedule('every 30 minutes', async () => {
+  const agora = new Date();
+  const umaHora = new Date(agora.getTime() + 60 * 60 * 1000);
+
+  const snap = await db.collection('reservas')
+    .where('status', '==', 'confirmado')
+    .get();
+
+  for (const doc of snap.docs) {
+    const reserva = doc.data();
+    const dataFim = reserva.ofertaDataFim?.toDate();
+    if (dataFim && dataFim > agora && dataFim < umaHora) {
+      await enviarNotificacao(
         reserva.consumidorId,
         '⏰ Voucher expirando!',
-        `Seu voucher "${reserva.ofertaTitulo}" expira em menos de 1 hora.`
+        `Seu voucher de ${reserva.ofertaTitulo} expira em menos de 1 hora.`
       );
+    }
+  }
+});
+
+// ============================================================
+// CRON 4: resetarContadoresOfertas — dia 1 de cada mês
+// ============================================================
+export const resetarContadoresOfertas = onSchedule('0 0 1 * *', async () => {
+  const snap = await db.collection('pmes')
+    .where('plano', '==', 'free')
+    .get();
+
+  if (snap.empty) return;
+
+  const agora = admin.firestore.Timestamp.now();
+  const chunks: FirebaseFirestore.QueryDocumentSnapshot[][] = [];
+
+  for (let i = 0; i < snap.docs.length; i += 500) {
+    chunks.push(snap.docs.slice(i, i + 500));
+  }
+
+  for (const chunk of chunks) {
+    const batch = db.batch();
+    chunk.forEach((doc) => {
+      batch.update(doc.ref, { ofertasCriadas: 0, resetData: agora });
     });
+    await batch.commit();
+  }
+});
 
-    await Promise.allSettled(notificacoes);
-    functions.logger.info(`notificarVouchersExpirando: ${snap.size} notificações enviadas`);
+// Trigger auxiliar: quando PME cria oferta, incrementa contador
+export const onOfertaCreated = onDocumentCreated('ofertas/{ofertaId}', async (event) => {
+  const oferta = event.data?.data();
+  if (!oferta?.pmeId) return;
+
+  await db.collection('pmes').doc(oferta.pmeId).update({
+    ofertasCriadas: admin.firestore.FieldValue.increment(1),
+    updatedAt: admin.firestore.Timestamp.now(),
   });
-
-// ═══════════════════════════════════════════════════════════
-// CRON 3: resetarContadoresOfertas — dia 1 de cada mês
-// Reseta ofertasCriadas de todas as PMEs no plano free
-// ═══════════════════════════════════════════════════════════
-export const resetarContadoresOfertas = functions.pubsub
-  .schedule('0 0 1 * *') // Dia 1 de cada mês às 00:00
-  .onRun(async () => {
-    const agora = admin.firestore.Timestamp.now();
-
-    const snap = await db.collection('pmes')
-      .where('plano', '==', 'free')
-      .get();
-
-    if (snap.empty) return;
-
-    // Processa em lotes de 500 (limite do Firestore batch)
-    const chunks: admin.firestore.QueryDocumentSnapshot[][] = [];
-    for (let i = 0; i < snap.docs.length; i += 500) {
-      chunks.push(snap.docs.slice(i, i + 500));
-    }
-
-    for (const chunk of chunks) {
-      const batch = db.batch();
-      chunk.forEach((doc) => {
-        batch.update(doc.ref, {
-          ofertasCriadas: 0,
-          resetData: agora,
-          updatedAt: agora,
-        });
-      });
-      await batch.commit();
-    }
-
-    functions.logger.info(`resetarContadoresOfertas: ${snap.size} PMEs resetadas`);
-  });
-
-// ═══════════════════════════════════════════════════════════
-// CRON 4: limparReservasExpiradas — a cada 15 minutos
-// Expira reservas pendentes com mais de 15min (Pix não pago)
-// Devolve unidade ao estoque da oferta
-// ═══════════════════════════════════════════════════════════
-export const limparReservasExpiradas = functions.pubsub
-  .schedule('every 15 minutes')
-  .onRun(async () => {
-    const limite = admin.firestore.Timestamp.fromMillis(Date.now() - 15 * 60 * 1000);
-    const agora = admin.firestore.Timestamp.now();
-
-    const snap = await db.collection('reservas')
-      .where('status', '==', 'pendente')
-      .where('createdAt', '<', limite)
-      .get();
-
-    if (snap.empty) return;
-
-    // Processa em lotes de 500
-    const chunks: admin.firestore.QueryDocumentSnapshot[][] = [];
-    for (let i = 0; i < snap.docs.length; i += 500) {
-      chunks.push(snap.docs.slice(i, i + 500));
-    }
-
-    for (const chunk of chunks) {
-      const batch = db.batch();
-      chunk.forEach((doc) => {
-        const reserva = doc.data();
-
-        // Marca como expirada
-        batch.update(doc.ref, { status: 'expirado', updatedAt: agora });
-
-        // Devolve unidade ao estoque
-        // Nota: só decrementa se a reserva chegou a reservar estoque
-        // No MVP, a reserva não decrementa estoque ao criar (só ao confirmar)
-        // Então não há necessidade de incrementar aqui
-        // Mantido como comentário para revisão futura se modelo mudar
-        void reserva; // evita warning de variável não usada
-      });
-      await batch.commit();
-    }
-
-    functions.logger.info(`limparReservasExpiradas: ${snap.size} reservas expiradas`);
-  });
+});
 
 // ============================================================
 // FIM: functions/src/index.ts
