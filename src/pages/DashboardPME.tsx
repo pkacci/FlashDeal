@@ -86,6 +86,9 @@ const DashboardPME: React.FC = () => {
       const lista = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Oferta));
       setOfertas(lista);
       setLoading(false);
+    }, (err) => {
+      console.error("Dashboard ofertas erro:", err);
+      setLoading(false);
     });
     return () => unsub();
   }, [usuario?.uid]);
