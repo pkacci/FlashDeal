@@ -1,8 +1,8 @@
 // ============================================================
 // INÍCIO: src/contexts/AuthContext.tsx
-// Versão: 1.6.0 | Data: 2026-02-26
-// Fix v1.6: setLoading(false) só após ter role E pmeData prontos
-//           Elimina race condition do setTimeout forçado
+// Versão: 1.7.0 | Data: 2026-02-27
+// Fix v1.7: carregarPME com try/catch próprio — nunca trava o loading
+//           Timeout de segurança global de 6s
 // ============================================================
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
@@ -45,26 +45,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
   const [pmeData, setPmeData] = useState<PMEData | null>(null);
 
-  // Busca pmeData e seta role=pme atomicamente
-  const carregarPME = async (uid: string) => {
-    const snap = await getDoc(doc(db, 'pmes', uid));
-    if (snap.exists()) {
-      setPmeData(snap.data() as PMEData);
-      setRole('pme');
-      return true;
+  const carregarPME = async (uid: string): Promise<boolean> => {
+    try {
+      const snap = await getDoc(doc(db, 'pmes', uid));
+      if (snap.exists()) {
+        setPmeData(snap.data() as PMEData);
+        setRole('pme');
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.warn('carregarPME falhou silenciosamente:', err);
+      return false;
     }
-    return false;
   };
 
-  // Força refresh do token e recarrega role + pmeData
   const refreshRole = async () => {
     try {
       if (!auth.currentUser) return;
       const idTokenResult = await getIdTokenResult(auth.currentUser, true);
       const claimRole = idTokenResult.claims.role as 'pme' | 'consumidor' | undefined;
-
       if (claimRole === 'pme') {
         await carregarPME(auth.currentUser.uid);
+        setRole('pme');
       } else if (claimRole === 'consumidor') {
         setRole('consumidor');
         setPmeData(null);
@@ -78,69 +81,63 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      const seguranca = setTimeout(() => {
+        console.warn('AuthContext: timeout de segurança atingido');
+        setLoading(false);
+      }, 6000);
+
       try {
         if (user) {
           setUsuario(user);
-
-          // 1ª tentativa: claims existentes no token
           const idTokenResult = await getIdTokenResult(user);
           const claimRole = idTokenResult.claims.role as 'pme' | 'consumidor' | undefined;
 
           if (claimRole === 'pme') {
-            // Carrega pmeData antes de liberar o loading
             await carregarPME(user.uid);
+            setRole('pme');
+            clearTimeout(seguranca);
             setLoading(false);
-
           } else if (claimRole === 'consumidor') {
             setRole('consumidor');
             setPmeData(null);
+            clearTimeout(seguranca);
             setLoading(false);
-
           } else {
-            // Sem claim ainda (novo usuário ou claim não propagou)
-            // Tenta fallback por documento Firestore
             const temPME = await carregarPME(user.uid);
             if (temPME) {
-              // PME já existe no Firestore mas claim ainda não propagou
+              clearTimeout(seguranca);
               setLoading(false);
             } else {
-              // Consumidor novo — aguarda claim da Cloud Function onUserCreate
-              // Timeout de segurança: máximo 4s esperando
-              const timer = setTimeout(() => {
-                setRole('consumidor');
-                setLoading(false);
-              }, 4000);
-
-              // Tenta refresh após 2.5s (tempo médio de propagação do claim)
               setTimeout(async () => {
                 try {
                   const result = await getIdTokenResult(user, true);
                   const r = result.claims.role as 'pme' | 'consumidor' | undefined;
                   if (r === 'pme') {
-                    clearTimeout(timer);
                     await carregarPME(user.uid);
-                    setLoading(false);
-                  } else if (r === 'consumidor') {
-                    clearTimeout(timer);
-                    setRole('consumidor');
-                    setLoading(false);
+                    setRole('pme');
+                  } else {
+                    setRole(r ?? 'consumidor');
                   }
                 } catch {
-                  // Timer de segurança já vai resolver
+                  setRole('consumidor');
+                } finally {
+                  clearTimeout(seguranca);
+                  setLoading(false);
                 }
               }, 2500);
             }
           }
         } else {
-          // Usuário deslogado
           setUsuario(null);
           setRole(null);
           setPmeData(null);
+          clearTimeout(seguranca);
           setLoading(false);
         }
       } catch (error) {
         console.error('Erro no observador de Auth:', error);
-        setRole('consumidor'); // Fallback seguro
+        setRole('consumidor');
+        clearTimeout(seguranca);
         setLoading(false);
       }
     });
@@ -160,15 +157,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{
-      usuario,
-      user: usuario,
-      role,
-      loading,
-      pmeData,
-      signOut,
-      refreshRole,
-    }}>
+    <AuthContext.Provider value={{ usuario, user: usuario, role, loading, pmeData, signOut, refreshRole }}>
       {children}
     </AuthContext.Provider>
   );
@@ -181,7 +170,3 @@ export const useAuth = () => {
 };
 
 export default AuthProvider;
-
-// ============================================================
-// FIM: src/contexts/AuthContext.tsx
-// ============================================================
