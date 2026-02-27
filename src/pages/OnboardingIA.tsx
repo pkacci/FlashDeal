@@ -191,7 +191,13 @@ const OnboardingIA: React.FC = () => {
       });
       // Força refresh do token para pegar o novo claim role=pme
       await refreshRole();
-      navigate('/dashboard', { replace: true });
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await refreshRole();
+      const tokenResult = await usuario.getIdTokenResult(true);
+      if (tokenResult.claims.role === "pme") {
+      } else {
+        window.location.href = "/dashboard";
+      }
     } catch (err: any) {
       alert('Erro: ' + (err?.message || JSON.stringify(err)));
       setSalvando(false);
