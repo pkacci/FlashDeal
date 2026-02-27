@@ -89,7 +89,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         if (user) {
           setUsuario(user);
-          const idTokenResult = await getIdTokenResult(user);
+          const idTokenResult = await getIdTokenResult(user, true);
           const claimRole = idTokenResult.claims.role as 'pme' | 'consumidor' | undefined;
 
           if (claimRole === 'pme') {
