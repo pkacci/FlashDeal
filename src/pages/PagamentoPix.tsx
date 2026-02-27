@@ -177,14 +177,15 @@ const PagamentoPix: React.FC = () => {
         <div className="card p-6 w-full max-w-xs text-center mb-6">
           {pixData?.pixQrCode ? (
             <img
-              src={`data:image/png;base64,${pixData.pixQrCode}`}
+              src={pixData.pixQrCode.startsWith('data:') ? pixData.pixQrCode : `data:image/png;base64,${pixData.pixQrCode}`}
               alt="QR Code Pix"
               className="w-48 h-48 mx-auto mb-4"
             />
           ) : (
-            // Placeholder visual enquanto QR carrega
-            <div className="w-48 h-48 bg-neutral-100 rounded-lg mx-auto mb-4 flex items-center justify-center">
-              <p className="text-neutral-400 text-sm">QR Code</p>
+            // Sandbox: sem QR Code real — orienta usar copia-e-cola
+            <div className="w-48 h-48 bg-neutral-50 border-2 border-dashed border-neutral-200 rounded-xl mx-auto mb-4 flex flex-col items-center justify-center gap-2">
+              <span className="text-3xl">📋</span>
+              <p className="text-xs text-neutral-400 text-center px-2">Use o código copia-e-cola abaixo</p>
             </div>
           )}
 
