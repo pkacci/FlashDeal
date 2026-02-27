@@ -18,6 +18,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { Oferta } from '../types/oferta';
 import useAuth from '../hooks/useAuth';
+import useGeolocation from '../hooks/useGeolocation';
 import useGeohash from '../hooks/useGeohash';
 import OfertaDetalhe from '../components/consumidor/OfertaDetalhe';
 import LoginModal from '../components/common/LoginModal';
@@ -28,6 +29,7 @@ const OfertaDetalhesPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { usuario } = useAuth();
+  const { lat: userLat, lng: userLng } = useGeolocation();
   const { calcDistanciaMetros } = useGeohash();
 
   const [oferta, setOferta] = useState<Oferta | null>(null);
@@ -50,13 +52,11 @@ const OfertaDetalhesPage: React.FC = () => {
         const data = { id: snap.id, ...snap.data() } as Oferta;
         setOferta(data);
 
-        // Calcula distância se o usuário tiver localização disponível
-        const userLat = sessionStorage.getItem('userLat');
-        const userLng = sessionStorage.getItem('userLng');
+        // Calcula distância usando geolocalização do hook
         if (userLat && userLng && data.geo) {
           const dist = calcDistanciaMetros(
-            parseFloat(userLat),
-            parseFloat(userLng),
+            userLat,
+            userLng,
             data.geo.latitude,
             data.geo.longitude
           );

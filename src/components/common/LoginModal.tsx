@@ -12,13 +12,18 @@ export interface LoginModalProps {
   onSucesso?: () => void;  // ← adicionado
 }
 
-const LoginModal: React.FC<LoginModalProps> = ({ ofertaId, onFechar }) => {
+const LoginModal: React.FC<LoginModalProps> = ({ ofertaId, onFechar, onSucesso }) => {
   const navigate = useNavigate();
 
   const handleLogin = () => {
-    navigate('/login', {
-      state: { ofertaId, from: `/oferta/${ofertaId}`, onSucesso: true },
-    });
+    if (onSucesso) {
+      // Fecha modal e chama callback direto (usuário já logado em outro fluxo)
+      onSucesso();
+    } else {
+      navigate('/login', {
+        state: { ofertaId, from: `/oferta/${ofertaId}` },
+      });
+    }
   };
 
   return (
