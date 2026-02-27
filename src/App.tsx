@@ -41,7 +41,7 @@ import PerfilPage from './pages/PerfilPage';
 
 // #region Layout wrapper — injeta BottomNav em todas as rotas internas
 const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div className="relative min-h-screen">
+  <div className="relative min-h-screen pb-20 bg-neutral-50">
     {children}
     <BottomNav />
     <Toast />
