@@ -195,7 +195,7 @@ const OnboardingIA: React.FC = () => {
       await refreshRole();
       const tokenResult = await usuario.getIdTokenResult(true);
       if (tokenResult.claims.role === "pme") {
-        navigate("/dashboard", { replace: true });
+        window.location.href = "/dashboard";
       } else {
         window.location.href = "/dashboard";
       }
