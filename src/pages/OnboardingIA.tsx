@@ -189,16 +189,19 @@ const OnboardingIA: React.FC = () => {
         endereco: dadosExtraidos.endereco ?? null,
         imagemUrl: imagemUrl ?? null,
       });
-      // Força refresh do token para pegar o novo claim role=pme
-      await refreshRole();
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      await refreshRole();
-      const tokenResult = await usuario.getIdTokenResult(true);
-      if (tokenResult.claims.role === "pme") {
-        window.location.href = "/dashboard";
-      } else {
-        window.location.href = "/dashboard";
+      // Polling do claim role=pme — até 5 tentativas de 1s
+      await usuario.getIdToken(true);
+      let attempts = 0;
+      let claimRole = null;
+      while (attempts < 5) {
+        const tokenResult = await usuario.getIdTokenResult(true);
+        claimRole = tokenResult.claims.role;
+        if (claimRole === 'pme') break;
+        await new Promise(res => setTimeout(res, 1000));
+        attempts++;
       }
+      await refreshRole();
+      navigate('/dashboard', { replace: true });
     } catch (err: any) {
       alert('Erro: ' + (err?.message || JSON.stringify(err)));
       setSalvando(false);
