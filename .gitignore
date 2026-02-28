@@ -32,3 +32,4 @@ functions/node_modules/
 firebase-debug.log
 # #endregion FIREBASE
 *.bak
+functions/.env

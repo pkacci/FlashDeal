@@ -283,7 +283,7 @@ export const gerarPix = onCall(async (request: CallableRequest) => {
 
   // Tenta chamar gateway Pix (Asaas sandbox)
   // Se não configurado, retorna QR Code simulado para testes
-  const pixKey = process.env.PIX_GATEWAY_KEY;
+  const pixKey = process.env.ASAAS_API_KEY;
 
   if (!pixKey) {
     // Modo sandbox/simulação para testes beta
