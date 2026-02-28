@@ -1,7 +1,6 @@
-# ==========================================
 # [ARQUIVO] deploy.yml v1.0
 # [DATA] 2026-02-25
-# [REQUER] firebase.json + 7 GitHub Secrets
+# [REQUER] firebase.json + 8 GitHub Secrets
 # ==========================================
 
 name: Deploy FlashDeal
@@ -9,7 +8,7 @@ name: Deploy FlashDeal
 on:
   push:
     branches:
-      - main  # Dispara apenas no push para main
+      - main
 
 jobs:
   build-and-deploy:
@@ -23,23 +22,22 @@ jobs:
       # #endregion CHECKOUT
 
       # #region NODE
-      - name: Configurar Node.js 18
+      - name: Configurar Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'            # Cache do npm — build mais rápido
+          cache: 'npm'
       # #endregion NODE
 
       # #region INSTALL
       - name: Instalar dependências
-        run: npm ci               # ci = install limpo e reproduzível
+        run: npm ci
       # #endregion INSTALL
 
       # #region BUILD
       - name: Build do projeto
         run: npm run build
         env:
-          # Injeta os secrets como variáveis de ambiente no build
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
           VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
@@ -52,13 +50,13 @@ jobs:
       - name: Deploy no Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}           # Token automático do GitHub
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           projectId: flashdeal-f590a
-          channelId: live                                  # Deploy em produção
+          channelId: live
       # #endregion DEPLOY
 
-##region FUNCTIONS
+      # #region FUNCTIONS
       - name: Instalar dependências das Functions
         run: cd functions && npm ci
 
