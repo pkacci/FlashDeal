@@ -324,7 +324,7 @@ const CriarOfertaPage: React.FC = () => {
             </div>
 
             {/* Preview em tempo real */}
-            <OfertaPreview data={previewData} />
+            <OfertaPreview data={{ ...previewData, imagemUrl: previewUrl ?? previewData.imagemUrl }} />
 
             {/* Erro de submit */}
             {erroSubmit && (
