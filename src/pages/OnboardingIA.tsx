@@ -182,13 +182,35 @@ const OnboardingIA: React.FC = () => {
     try {
       const functions = getFunctions();
       const promover = httpsCallable(functions, 'promoverParaPME');
+      // Geocodificação real via Nominatim (OpenStreetMap) — zero custo, sem chave API
+const endereco = dadosExtraidos.endereco ?? null;
+let geoLat = -23.5505;
+let geoLng = -46.6333;
+if (endereco?.rua && endereco?.cidade && endereco?.estado) {
+  try {
+    const q = encodeURIComponent(`${endereco.rua}, ${endereco.numero}, ${endereco.cidade}, ${endereco.estado}, Brasil`);
+    const geoResp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=1`);
+    const geoData = await geoResp.json();
+    if (geoData.length > 0) {
+      geoLat = parseFloat(geoData[0].lat);
+      geoLng = parseFloat(geoData[0].lon);
+    }
+  } catch {
+    // Fallback silencioso para SP se Nominatim falhar
+  }
+}
+const { geohashForLocation } = await import('geofire-common');
+const geoHash = geohashForLocation([geoLat, geoLng]);
+
       await promover({
-        nomeFantasia: dadosExtraidos.nomeFantasia || fallbackNome,
-        cnpj: dadosExtraidos.cnpj || fallbackCNPJ.replace(/\D/g, ''),
-        categoria: dadosExtraidos.categoria || fallbackCategoria,
-        endereco: dadosExtraidos.endereco ?? null,
-        imagemUrl: imagemUrl ?? null,
-      });
+      nomeFantasia: dadosExtraidos.nomeFantasia || fallbackNome,
+      cnpj: dadosExtraidos.cnpj || fallbackCNPJ.replace(/\D/g, ''),
+      categoria: dadosExtraidos.categoria || fallbackCategoria,
+      endereco,
+     imagemUrl: imagemUrl ?? null,
+     geo: { latitude: geoLat, longitude: geoLng },
+     geohash: geoHash,
+    });
       // Polling do claim role=pme — até 5 tentativas de 1s
       await usuario.getIdToken(true);
       let attempts = 0;
