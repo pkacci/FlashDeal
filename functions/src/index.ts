@@ -1,9 +1,23 @@
 // ============================================================
 // INÍCIO: functions/src/index.ts
-// Versão: 2.0.0 | Correção: API firebase-functions v2 correta
+// Versão: 3.0.0 | Security Review 2026-02-28
+//
+// FIXES APLICADOS (ver SECURITY_AUDIT.md):
+//   [P0-1] webhookPix: verificação de token Asaas anti-forgery
+//   [P0-2] gerarPix: transação atômica elimina race condition de estoque
+//   [P0-3] promoverParaPME: whitelist explícita de campos (anti mass-assignment)
+//   [P1-4] confirmarPagamentoManual: sandbox gate — bloqueado em produção
+//   [P1-5] chatIA: key via process.env somente + validação de payload
+//   [P1-6] validarCNPJ: auth obrigatória + fallback seguro (não valida CNPJ inválido)
+//   [P2-7] gerarCodigoVoucher: crypto.randomBytes em vez de Math.random()
+//   [ADJ]  limparReservasExpiradas: restaura estoque de pendentes com estoqueReservado
+//   [ADJ]  webhookPix: remove decremento de estoque (agora feito em gerarPix)
+//   [ADJ]  confirmarPagamentoManual: remove decremento de estoque
 // ============================================================
 
 import * as admin from 'firebase-admin';
+import { randomBytes } from 'crypto'; // [P2-7] CSPRNG para vouchers
+
 import {
   onCall,
   onRequest,
@@ -21,11 +35,13 @@ const db = admin.firestore();
 // HELPERS
 // ============================================================
 
+// [P2-7] Usa crypto.randomBytes em vez de Math.random() — resistente a previsão
 function gerarCodigoVoucher(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = randomBytes(8);
   let code = 'FD-';
   for (let i = 0; i < 8; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+    code += chars[bytes[i] % chars.length];
   }
   return code;
 }
@@ -54,8 +70,7 @@ async function enviarNotificacao(
 export const onUserCreate = auth.user().onCreate(async (user) => {
   const { uid, email, phoneNumber, displayName, photoURL } = user;
 
-  // Tenta detectar role pelo metadata customizado
-  // Por padrão, cria como consumidor; PME é criada via fluxo de onboarding
+  // Por padrão, cria como consumidor; PME é promovida via promoverParaPME()
   const agora = admin.firestore.Timestamp.now();
 
   await db.collection('consumidores').doc(uid).set({
@@ -71,25 +86,54 @@ export const onUserCreate = auth.user().onCreate(async (user) => {
     updatedAt: agora,
   });
 
-  // Define custom claim padrão como consumidor
   await admin.auth().setCustomUserClaims(uid, { role: 'consumidor' });
 });
 
 // ============================================================
-// FUNCTION 2: promoverParaPME — chamada durante onboarding
+// FUNCTION 2: promoverParaPME
+// [P0-3] Whitelist explícita de campos — elimina mass assignment via ...dados
 // ============================================================
 export const promoverParaPME = onCall(async (request: CallableRequest) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'Não autenticado');
 
+  const raw = request.data as Record<string, unknown>;
+
+  // [P0-3] Apenas campos explicitamente permitidos são aceitos.
+  // Campos sensíveis (plano, limiteOfertas, verificada, etc.) são ignorados
+  // mesmo que o cliente os envie — definidos abaixo com valores fixos.
+  const camposPermitidos = {
+    nomeFantasia: typeof raw.nomeFantasia === 'string'
+      ? raw.nomeFantasia.trim().slice(0, 100)
+      : '',
+    cnpj: typeof raw.cnpj === 'string'
+      ? raw.cnpj.replace(/\D/g, '').slice(0, 14)
+      : '',
+    categoria: typeof raw.categoria === 'string'
+      ? raw.categoria.trim().slice(0, 30)
+      : '',
+    telefone: typeof raw.telefone === 'string'
+      ? raw.telefone.replace(/\D/g, '').slice(0, 20)
+      : null,
+    endereco: (raw.endereco !== null && typeof raw.endereco === 'object')
+      ? raw.endereco as Record<string, string>
+      : {},
+    imagemUrl: typeof raw.imagemUrl === 'string'
+      ? raw.imagemUrl.slice(0, 500)
+      : null,
+    geo: (raw.geo !== null && typeof raw.geo === 'object') ? raw.geo : null,
+    geohash: typeof raw.geohash === 'string'
+      ? raw.geohash.slice(0, 20)
+      : null,
+  };
+
   await admin.auth().setCustomUserClaims(uid, { role: 'pme' });
 
   const agora = admin.firestore.Timestamp.now();
-  const dados = request.data as Record<string, unknown>;
-
   await db.collection('pmes').doc(uid).set({
     id: uid,
-    ...dados,
+    ...camposPermitidos,
+    // Campos de controle: sempre definidos server-side, NUNCA aceitos do cliente
     plano: 'free',
     limiteOfertas: 10,
     ofertasCriadas: 0,
@@ -104,10 +148,21 @@ export const promoverParaPME = onCall(async (request: CallableRequest) => {
 
 // ============================================================
 // FUNCTION 3: chatIA — onboarding conversacional com Gemini
+// [P1-5] Chave via process.env somente | validação de payload
 // ============================================================
 export const chatIA = onCall(async (request: CallableRequest) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'Não autenticado');
+
+  const { mensagens, dadosAtuais } = request.data as {
+    mensagens: { role: string; content: string }[];
+    dadosAtuais: Record<string, unknown>;
+  };
+
+  // [P1-5] Valida tamanho do payload antes de processar
+  if (!Array.isArray(mensagens) || mensagens.length > 50) {
+    throw new HttpsError('invalid-argument', 'Parâmetros inválidos');
+  }
 
   // Rate limit: 20 chamadas/uid/hora
   const agora = admin.firestore.Timestamp.now();
@@ -133,15 +188,15 @@ export const chatIA = onCall(async (request: CallableRequest) => {
     await rateLimitRef.set({ chatIA: { count: 1, windowStart: agora } });
   }
 
-  const { mensagens, dadosAtuais } = request.data as {
-    mensagens: { role: string; content: string }[];
-    dadosAtuais: Record<string, unknown>;
-  };
+  // [P1-5] Usa APENAS process.env — defineString deve ser chamado no nível do módulo,
+  //        não dentro de funções. Injetar via --set-secrets no deploy.
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (!geminiKey) {
+    console.error('chatIA: GEMINI_API_KEY não configurada. Use --set-secrets no deploy.');
+    return { fallback: true, motivo: 'config_error' };
+  }
 
   try {
-    const geminiKey = process.env.GEMINI_API_KEY ??
-      (await import('firebase-functions')).params.defineString('GEMINI_API_KEY').value();
-
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey}`,
       {
@@ -150,8 +205,8 @@ export const chatIA = onCall(async (request: CallableRequest) => {
         body: JSON.stringify({
           systemInstruction: {
             parts: [{
-              text: `Você é um assistente amigável que ajuda PMEs brasileiras a se cadastrarem no FlashDeal.
-Extraia os dados: nomeFantasia, cnpj, categoria (restaurante/salao/academia/servico/varejo), telefone.
+              text: `Você é um assistente amigável que ajuda PMEs brasileiras a se cadastrarem no LiquiBairro.
+Extraia os dados: nomeFantasia, cnpj, categoria (restaurante/supermercado/beleza/fitness/saude/educacao/pet/bar/hotel/servicos/varejo), telefone.
 Responda em JSON: { "resposta": "mensagem amigável", "dadosExtraidos": {...}, "concluido": false }
 Quando tiver todos os dados obrigatórios (nomeFantasia + cnpj + categoria), defina concluido: true.
 Dados já coletados: ${JSON.stringify(dadosAtuais)}`
@@ -159,7 +214,8 @@ Dados já coletados: ${JSON.stringify(dadosAtuais)}`
           },
           contents: mensagens.map((m) => ({
             role: m.role === 'assistant' ? 'model' : 'user',
-            parts: [{ text: m.content }],
+            // [P1-5] Limita tamanho de cada mensagem para evitar abuso de quota Gemini
+            parts: [{ text: typeof m.content === 'string' ? m.content.slice(0, 2000) : '' }],
           })),
         }),
       }
@@ -184,8 +240,13 @@ Dados já coletados: ${JSON.stringify(dadosAtuais)}`
 
 // ============================================================
 // FUNCTION 4: validarCNPJ — via BrasilAPI
+// [P1-6] Auth obrigatória | fallback seguro (rejeita CNPJ em caso de falha)
 // ============================================================
 export const validarCNPJ = onCall(async (request: CallableRequest) => {
+  // [P1-6] Exige autenticação — evita scraping/abuso da BrasilAPI via proxy
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Não autenticado');
+
   const { cnpj } = request.data as { cnpj: string };
   const cnpjLimpo = cnpj.replace(/\D/g, '');
 
@@ -222,13 +283,20 @@ export const validarCNPJ = onCall(async (request: CallableRequest) => {
       },
     };
   } catch {
-    // Se BrasilAPI estiver fora, permite continuar sem validação
-    return { valido: true, dados: null };
+    // [P1-6] BrasilAPI offline → retorna ERRO, nunca valida automaticamente.
+    // Antes retornava { valido: true } — isso permitia CNPJ falso em caso de falha.
+    console.warn('validarCNPJ: BrasilAPI indisponível para CNPJ', cnpjLimpo.slice(0, 4) + '...');
+    return {
+      valido: false,
+      mensagem: 'Serviço de validação temporariamente indisponível. Tente novamente em instantes.',
+    };
   }
 });
 
 // ============================================================
 // FUNCTION 5: gerarPix — cria reserva e QR Code Pix
+// [P0-2] Transação atômica: verifica + decrementa estoque atomicamente
+//        Elimina race condition que causava overselling
 // ============================================================
 export const gerarPix = onCall(async (request: CallableRequest) => {
   const uid = request.auth?.uid;
@@ -237,59 +305,81 @@ export const gerarPix = onCall(async (request: CallableRequest) => {
   const { ofertaId } = request.data as { ofertaId: string };
   const agora = admin.firestore.Timestamp.now();
 
-  // Valida oferta
-  const ofertaSnap = await db.collection('ofertas').doc(ofertaId).get();
-  if (!ofertaSnap.exists) {
-    throw new HttpsError('not-found', 'Oferta não encontrada');
-  }
-
-  const oferta = ofertaSnap.data()!;
-  if (!oferta.ativa) throw new HttpsError('failed-precondition', 'Oferta inativa');
-  if (oferta.dataFim.toDate() < new Date()) {
-    throw new HttpsError('failed-precondition', 'Oferta expirada');
-  }
-  if (oferta.quantidadeDisponivel <= 0) {
-    throw new HttpsError('failed-precondition', 'Oferta esgotada');
-  }
-
-  // Verifica consumidor
+  // Verifica consumidor antes da transação
   const consumidorSnap = await db.collection('consumidores').doc(uid).get();
   if (!consumidorSnap.exists) {
     throw new HttpsError('not-found', 'Consumidor não encontrado');
   }
   const consumidor = consumidorSnap.data()!;
 
-  const idempotencyKey = `IDMP-${uid}-${ofertaId}-${Date.now()}`;
-
-  // Cria reserva
   const reservaRef = db.collection('reservas').doc();
-  await reservaRef.set({
-    id: reservaRef.id,
-    ofertaId,
-    pmeId: oferta.pmeId,
-    consumidorId: uid,
-    consumidorNome: consumidor.nome ?? '',
-    consumidorTelefone: consumidor.telefone ?? '',
-    ofertaTitulo: oferta.titulo,
-    ofertaDataFim: oferta.dataFim,
-    pmeNome: oferta.pmeNome ?? '',
-    pmeEndereco: oferta.endereco ?? {},
-    valorPago: oferta.valorOferta,
-    pixIdempotencyKey: idempotencyKey,
-    processado: false,
-    status: 'pendente',
-    createdAt: agora,
-  });
 
-  // Tenta chamar gateway Pix (Asaas sandbox)
-  // Se não configurado, retorna QR Code simulado para testes
+  // Captura dados da oferta fora da transação para uso posterior
+  let ofertaCapturada: admin.firestore.DocumentData;
+
+  // [P0-2] Transação atômica: garante que verificação de estoque e decremento
+  //        são inseparáveis. Sem isso, múltiplas chamadas concorrentes passavam
+  //        pela verificação e criavam reservas além do estoque disponível.
+  try {
+    await db.runTransaction(async (tx) => {
+      const ofertaSnap = await tx.get(db.collection('ofertas').doc(ofertaId));
+
+      if (!ofertaSnap.exists) {
+        throw new HttpsError('not-found', 'Oferta não encontrada');
+      }
+
+      const oferta = ofertaSnap.data()!;
+
+      if (!oferta.ativa) {
+        throw new HttpsError('failed-precondition', 'Oferta inativa');
+      }
+      if (typeof oferta.dataFim?.toDate !== 'function' || oferta.dataFim.toDate() < new Date()) {
+        throw new HttpsError('failed-precondition', 'Oferta expirada');
+      }
+      if ((oferta.quantidadeDisponivel ?? 0) <= 0) {
+        throw new HttpsError('failed-precondition', 'Oferta esgotada');
+      }
+
+      ofertaCapturada = oferta;
+
+      // Decrementa estoque dentro da transação (atômico + consistente)
+      tx.update(db.collection('ofertas').doc(ofertaId), {
+        quantidadeDisponivel: admin.firestore.FieldValue.increment(-1),
+      });
+
+      // Cria reserva com flag estoqueReservado para restauração em caso de expiração
+      tx.set(reservaRef, {
+        id: reservaRef.id,
+        ofertaId,
+        pmeId: oferta.pmeId,
+        consumidorId: uid,
+        consumidorNome: consumidor.nome ?? '',
+        consumidorTelefone: consumidor.telefone ?? '',
+        ofertaTitulo: oferta.titulo,
+        ofertaDataFim: oferta.dataFim,
+        pmeNome: oferta.pmeNome ?? '',
+        pmeEndereco: oferta.endereco ?? {},
+        valorPago: oferta.valorOferta,
+        pixIdempotencyKey: `IDMP-${uid}-${ofertaId}-${Date.now()}`,
+        processado: false,
+        estoqueReservado: true, // sinaliza limparReservasExpiradas para restaurar o estoque
+        status: 'pendente',
+        createdAt: agora,
+      });
+    });
+  } catch (err) {
+    // Propaga HttpsError sem alterar
+    if (err instanceof HttpsError) throw err;
+    console.error('gerarPix: Erro na transação:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
+    throw new HttpsError('internal', 'Erro ao processar reserva. Tente novamente.');
+  }
+
   const pixKey = process.env.ASAAS_API_KEY;
   console.log('DEBUG pixKey presente:', !!pixKey, '| tamanho:', pixKey?.length ?? 0);
-  console.log('DEBUG ENV KEYS:', Object.keys(process.env).filter(k => k.includes('ASAAS') || k.includes('PIX')));
 
   if (!pixKey) {
     // Modo sandbox/simulação para testes beta
-    const pixCopiaCola = `00020126580014BR.GOV.BCB.PIX0136${reservaRef.id}5204000053039865802BR5925FLASHDEAL PAGAMENTOS LTDA6009SAO PAULO62070503***6304`;
+    const pixCopiaCola = `00020126580014BR.GOV.BCB.PIX0136${reservaRef.id}5204000053039865802BR5925LIQUIBAIRRO PAGAMENTOS6009SAO PAULO62070503***6304`;
     return {
       reservaId: reservaRef.id,
       pixQrCode: null,
@@ -308,9 +398,9 @@ export const gerarPix = onCall(async (request: CallableRequest) => {
       },
       body: JSON.stringify({
         billingType: 'PIX',
-        value: oferta.valorOferta,
+        value: ofertaCapturada!.valorOferta,
         dueDate: new Date(Date.now() + 10 * 60 * 1000).toISOString().split('T')[0],
-        description: oferta.titulo,
+        description: ofertaCapturada!.titulo,
         externalReference: reservaRef.id,
       }),
     });
@@ -332,14 +422,22 @@ export const gerarPix = onCall(async (request: CallableRequest) => {
       expiraEm: 600,
     };
   } catch (err) {
-    console.error('ERRO gerarPix detalhado:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
-    await reservaRef.delete();
+    console.error('ERRO gerarPix Asaas:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
+    // Estoque já foi decrementado na transação — restaura e cancela reserva
+    const batch = db.batch();
+    batch.update(db.collection('ofertas').doc(ofertaId), {
+      quantidadeDisponivel: admin.firestore.FieldValue.increment(1),
+    });
+    batch.delete(reservaRef);
+    await batch.commit();
     throw new HttpsError('internal', 'Erro ao gerar Pix. Tente novamente.');
   }
 });
 
 // ============================================================
 // FUNCTION 6: webhookPix — confirma pagamento
+// [P0-1] Verifica token Asaas antes de processar qualquer evento
+// [ADJ]  Não decrementa mais estoque (já decrementado em gerarPix)
 // ============================================================
 export const webhookPix = onRequest(async (req, res) => {
   if (req.method !== 'POST') {
@@ -347,9 +445,22 @@ export const webhookPix = onRequest(async (req, res) => {
     return;
   }
 
+  // [P0-1] Verifica autenticidade do webhook via token do Asaas.
+  // Sem isso, qualquer atacante que conheça a URL pode confirmar pagamentos falsos
+  // e obter vouchers sem pagar.
+  const pixKey = process.env.ASAAS_API_KEY;
+  const tokenRecebido = req.headers['asaas-access-token'];
+
+  if (!pixKey || tokenRecebido !== pixKey) {
+    console.warn('webhookPix: token Asaas inválido ou ausente. Possível ataque de forgery.', {
+      tokenPresente: !!tokenRecebido,
+    });
+    res.status(401).send('Unauthorized');
+    return;
+  }
+
   const evento = req.body;
 
-  // Aceita eventos de pagamento confirmado
   if (!['PAYMENT_CONFIRMED', 'PAYMENT_RECEIVED'].includes(evento.event)) {
     res.status(200).send('Evento ignorado');
     return;
@@ -361,7 +472,6 @@ export const webhookPix = onRequest(async (req, res) => {
     return;
   }
 
-  // Busca reserva pelo pixTransacaoId
   const reservasSnap = await db.collection('reservas')
     .where('pixTransacaoId', '==', pagamentoId)
     .limit(1)
@@ -384,21 +494,14 @@ export const webhookPix = onRequest(async (req, res) => {
   const voucherCodigo = gerarCodigoVoucher();
   const agora = admin.firestore.Timestamp.now();
 
-  // Batch write atômico
-  const batch = db.batch();
-
-  batch.update(reservaDoc.ref, {
+  // [ADJ] Estoque já foi decrementado em gerarPix (transação atômica).
+  //       Apenas confirma o pagamento e gera o voucher.
+  await reservaDoc.ref.update({
     status: 'confirmado',
     processado: true,
     voucherCodigo,
     dataConfirmacao: agora,
   });
-
-  batch.update(db.collection('ofertas').doc(reserva.ofertaId), {
-    quantidadeDisponivel: admin.firestore.FieldValue.increment(-1),
-  });
-
-  await batch.commit();
 
   // Notifica (best-effort)
   await enviarNotificacao(
@@ -411,11 +514,21 @@ export const webhookPix = onRequest(async (req, res) => {
 });
 
 // ============================================================
-// FUNCTION 7: confirmarPagamentoManual — para testes beta (sandbox)
+// FUNCTION 7: confirmarPagamentoManual — testes beta (sandbox)
+// [P1-4] Sandbox gate: bloqueado quando ASAAS_API_KEY está configurada em produção
+// [ADJ]  Não decrementa mais estoque (já decrementado em gerarPix)
 // ============================================================
 export const confirmarPagamentoManual = onCall(async (request: CallableRequest) => {
   const uid = request.auth?.uid;
   if (!uid) throw new HttpsError('unauthenticated', 'Não autenticado');
+
+  // [P1-4] Sandbox gate: se ASAAS_API_KEY está presente (produção), bloqueia.
+  // Sem isso, qualquer consumidor pode confirmar seu próprio pagamento sem pagar.
+  const emProducao = !!process.env.ASAAS_API_KEY && process.env.SANDBOX_MODE !== 'true';
+  if (emProducao) {
+    // Retorna 'not-found' para não vazar informação sobre a existência da função
+    throw new HttpsError('not-found', 'Função não disponível');
+  }
 
   const { reservaId } = request.data as { reservaId: string };
 
@@ -429,17 +542,13 @@ export const confirmarPagamentoManual = onCall(async (request: CallableRequest) 
   const voucherCodigo = gerarCodigoVoucher();
   const agora = admin.firestore.Timestamp.now();
 
-  const batch = db.batch();
-  batch.update(reservaSnap.ref, {
+  // [ADJ] Estoque já decrementado em gerarPix — apenas confirma a reserva
+  await reservaSnap.ref.update({
     status: 'confirmado',
     processado: true,
     voucherCodigo,
     dataConfirmacao: agora,
   });
-  batch.update(db.collection('ofertas').doc(reserva.ofertaId), {
-    quantidadeDisponivel: admin.firestore.FieldValue.increment(-1),
-  });
-  await batch.commit();
 
   return { voucherCodigo };
 });
@@ -482,6 +591,7 @@ export const cancelarReserva = onCall(async (request: CallableRequest) => {
     dataCancelamento: agora,
     motivoCancelamento: motivoCancelamento ?? 'Cancelado pelo usuário',
   });
+  // Restaura estoque ao cancelar reserva confirmada
   batch.update(db.collection('ofertas').doc(reserva.ofertaId), {
     quantidadeDisponivel: admin.firestore.FieldValue.increment(1),
   });
@@ -587,6 +697,8 @@ export const expirarOfertas = onSchedule('every 60 minutes', async () => {
 
 // ============================================================
 // CRON 2: limparReservasExpiradas — a cada 15 minutos
+// [ADJ] Restaura estoque de reservas com estoqueReservado: true
+//       (aquelas criadas após o fix P0-2 em gerarPix)
 // ============================================================
 export const limparReservasExpiradas = onSchedule('every 15 minutes', async () => {
   const quinzeMinutosAtras = new Date(Date.now() - 15 * 60 * 1000);
@@ -601,8 +713,20 @@ export const limparReservasExpiradas = onSchedule('every 15 minutes', async () =
 
   const batch = db.batch();
   snap.docs.forEach((doc) => {
+    const reserva = doc.data();
+
     batch.update(doc.ref, { status: 'expirado' });
+
+    // [ADJ] Restaura estoque apenas para reservas criadas com a nova lógica
+    // (estoqueReservado: true). Reservas antigas (sem esse campo) não decrementaram
+    // estoque em gerarPix, portanto não precisam ser restauradas.
+    if (reserva.estoqueReservado === true) {
+      batch.update(db.collection('ofertas').doc(reserva.ofertaId), {
+        quantidadeDisponivel: admin.firestore.FieldValue.increment(1),
+      });
+    }
   });
+
   await batch.commit();
 });
 
