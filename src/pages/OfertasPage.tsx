@@ -149,6 +149,7 @@ const OfertasPage: React.FC = () => {
             where('dataFim', '>', agora),
             where('geohash', '>=', startHash),
             where('geohash', '<=', endHash),
+            orderBy('geohash'),
             orderBy('dataFim', 'asc')
           );
 
