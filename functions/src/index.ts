@@ -330,7 +330,8 @@ export const gerarPix = onCall(async (request: CallableRequest) => {
       pixCopiaCola: pagamento.payload ?? '',
       expiraEm: 600,
     };
-  } catch {
+  } catch (err) {
+    console.error('ERRO gerarPix detalhado:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
     await reservaRef.delete();
     throw new HttpsError('internal', 'Erro ao gerar Pix. Tente novamente.');
   }
