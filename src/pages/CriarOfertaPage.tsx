@@ -20,6 +20,7 @@ import useOfertaForm from '../hooks/useOfertaForm';
 import useImageUpload from '../hooks/useImageUpload';
 import OfertaPreview from '../components/pme/OfertaPreview';
 import { useToast } from '../contexts/ToastContext';
+import { geohashForLocation } from 'geofire-common';
 
 // #region Smart Templates por categoria
 const TEMPLATES_POR_CATEGORIA: Record<string, Array<{
@@ -87,7 +88,7 @@ const CriarOfertaPage: React.FC = () => {
     pmeCategoria: pmeData?.categoria ?? '',
     pmeLat: pmeData?.endereco?.geo?.latitude ?? -23.5505,
     pmeLng: pmeData?.endereco?.geo?.longitude ?? -46.6333,
-    pmeGeohash: pmeData?.geohash ?? '',
+    pmeGeohash: pmeData?.geohash || geohashForLocation([pmeData?.endereco?.geo?.latitude ?? -23.5505, pmeData?.endereco?.geo?.longitude ?? -46.6333]),
     pmeEndereco: pmeData?.endereco ?? {},
     limiteOfertas: pmeData?.limiteOfertas ?? 10,
     ofertasCriadas: pmeData?.ofertasCriadas ?? 0,
