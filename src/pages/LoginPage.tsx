@@ -82,7 +82,9 @@ const LoginPage: React.FC = () => {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
       // useEffect acima cuida do redirect
-    } catch {
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '';
+      if (msg.includes('missing initial state')) return;
       setErro('Não foi possível entrar com Google. Tente novamente.');
     } finally {
       setLoadingGoogle(false);
@@ -110,7 +112,7 @@ const LoginPage: React.FC = () => {
       setConfirmationResult(result);
       setEtapa('codigo');
       setReenvioTimer(30); // Bloqueia reenvio por 30s
-    } catch {
+    } catch (err: unknown) {
       setErro('Não foi possível enviar o SMS. Verifique o número e tente novamente.');
     } finally {
       setLoadingPhone(false);
@@ -127,7 +129,7 @@ const LoginPage: React.FC = () => {
     try {
       await confirmationResult.confirm(codigoSMS);
       // useEffect acima cuida do redirect
-    } catch {
+    } catch (err: unknown) {
       setErro('Código inválido ou expirado. Tente novamente.');
     } finally {
       setLoadingPhone(false);
