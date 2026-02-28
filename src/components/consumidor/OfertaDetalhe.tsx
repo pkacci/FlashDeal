@@ -194,7 +194,7 @@ const OfertaDetalhe: React.FC<OfertaDetalheProps> = ({
       </div>
 
       {/* CTA fixo no rodapé — sempre visível, z-index acima do BottomNav */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-neutral-100 p-4 z-30">
+      <div className="fixed bottom-16 left-0 right-0 bg-white border-t border-neutral-100 p-4 z-30">
         <button
           onClick={onGarantir}
           disabled={indisponivel || isLoading}
