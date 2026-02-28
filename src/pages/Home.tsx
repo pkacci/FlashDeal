@@ -1,16 +1,19 @@
 // ============================================================
 // INÍCIO: src/pages/Home.tsx
-// Versão: 1.0.0 | Data: 2026-02-25
-// Deps: React, react-router-dom
-// Descrição: Landing page pública do FlashDeal
-//            — Hero com 2 CTAs: consumidor → /ofertas, PME → /login?role=pme
-//            — Seção "Como funciona" (3 passos visuais)
-//            — Seção de convencimento para PMEs
-//            — Zero dependências externas — sem Firebase aqui
+// Versão: 2.0.0 | Data: 2026-02-27
+// Deps: React, react-router-dom, firebase/firestore
+// Melhorias v2.0:
+//   — Urgência ao vivo: contador de ofertas ativas no Firestore
+//   — CTA PME mais específico e orientado à ação
+//   — Benefícios PME com linguagem mais agressiva
+//   — Seção de prova social adicionada
+//   — Nomenclatura estratégica: sem referência a IA
 // ============================================================
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { collection, query, where, getCountFromServer } from 'firebase/firestore';
+import { db } from '../services/firebase';
 
 // #region Dados estáticos
 const PASSOS = [
@@ -20,16 +23,42 @@ const PASSOS = [
 ];
 
 const BENEFICIOS_PME = [
-  '10 ofertas grátis por mês — sem cartão',
-  'Cadastro em 3 minutos com IA',
+  '10 ofertas grátis por mês — sem cartão de crédito',
+  'Ative seu negócio em 3 minutos, sem burocracia',
   'Receba Pix direto, sem intermediários',
-  'IA cria a oferta pra você',
+  'Fórmulas de Venda prontas — publique em 60 segundos',
+];
+
+const PROVAS_SOCIAIS = [
+  { icone: '🍕', texto: 'Restaurantes lotam horários mortos' },
+  { icone: '💇', texto: 'Salões preenchem agenda vazia' },
+  { icone: '💪', texto: 'Academias vendem aulas experimentais' },
 ];
 // #endregion
 
 // #region Component
 const Home: React.FC = () => {
   const navigate = useNavigate();
+  const [ofertasAtivas, setOfertasAtivas] = useState<number | null>(null);
+
+  // #region Contador ao vivo — ofertas ativas no Firestore
+  useEffect(() => {
+    const buscarContador = async () => {
+      try {
+        const q = query(
+          collection(db, 'ofertas'),
+          where('ativa', '==', true)
+        );
+        const snap = await getCountFromServer(q);
+        setOfertasAtivas(snap.data().count);
+      } catch {
+        // Falha silenciosa — não exibe contador se erro
+        setOfertasAtivas(null);
+      }
+    };
+    buscarContador();
+  }, []);
+  // #endregion
 
   return (
     <div className="min-h-screen bg-white">
@@ -48,6 +77,17 @@ const Home: React.FC = () => {
       {/* Hero */}
       <section className="flex flex-col items-center justify-center text-center px-6 py-16 min-h-[80vh]">
         <div className="max-w-sm mx-auto">
+
+          {/* Badge de urgência ao vivo */}
+          {ofertasAtivas !== null && ofertasAtivas > 0 && (
+            <div className="inline-flex items-center gap-2 bg-primary-50 border border-primary-200 rounded-full px-4 py-1.5 mb-6">
+              <span className="w-2 h-2 bg-primary-500 rounded-full animate-pulse" />
+              <span className="text-xs font-semibold text-primary-600">
+                {ofertasAtivas} {ofertasAtivas === 1 ? 'oferta ativa' : 'ofertas ativas'} agora perto de você
+              </span>
+            </div>
+          )}
+
           <h1 className="text-3xl font-bold text-neutral-800 leading-tight mb-3">
             Ofertas relâmpago{' '}
             <span className="text-primary-500">perto de você</span>
@@ -68,8 +108,9 @@ const Home: React.FC = () => {
             onClick={() => navigate('/login?role=pme')}
             className="w-full py-4 text-base font-semibold border-2 border-neutral-200 rounded-xl text-neutral-700 hover:border-primary-300 transition-colors"
           >
-            🏪 Sou PME — começar grátis
+            🏪 Crie sua primeira oferta em 3 minutos
           </button>
+
         </div>
       </section>
 
@@ -89,8 +130,26 @@ const Home: React.FC = () => {
         </div>
       </section>
 
+      {/* Prova social */}
+      <section className="px-6 py-10">
+        <p className="text-center text-sm font-semibold text-neutral-500 uppercase tracking-wide mb-6">
+          Negócios que já vendem mais rápido
+        </p>
+        <div className="flex flex-col gap-3 max-w-sm mx-auto">
+          {PROVAS_SOCIAIS.map((p) => (
+            <div
+              key={p.texto}
+              className="flex items-center gap-3 bg-neutral-50 rounded-xl px-4 py-3"
+            >
+              <span className="text-2xl">{p.icone}</span>
+              <p className="text-sm text-neutral-700 font-medium">{p.texto}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* Convencimento PME */}
-      <section className="px-6 py-12">
+      <section className="px-6 py-12 bg-neutral-50">
         <div className="max-w-sm mx-auto card p-6">
           <h2 className="text-lg font-bold text-neutral-800 mb-2">
             Cadastre em 3 minutos.{' '}
