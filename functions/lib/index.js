@@ -270,7 +270,7 @@ exports.gerarPix = (0, https_1.onCall)(async (request) => {
     });
     // Tenta chamar gateway Pix (Asaas sandbox)
     // Se não configurado, retorna QR Code simulado para testes
-    const pixKey = process.env.PIX_GATEWAY_KEY;
+    const pixKey = process.env.ASAAS_API_KEY;
     if (!pixKey) {
         // Modo sandbox/simulação para testes beta
         const pixCopiaCola = `00020126580014BR.GOV.BCB.PIX0136${reservaRef.id}5204000053039865802BR5925FLASHDEAL PAGAMENTOS LTDA6009SAO PAULO62070503***6304`;
