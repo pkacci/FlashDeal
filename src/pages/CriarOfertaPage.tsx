@@ -316,16 +316,11 @@ const CriarOfertaPage: React.FC = () => {
                 <input
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   className="hidden"
                   onChange={handleFoto}
                 />
               </label>
 
-              {/* Preview da foto */}
-              {previewUrl && (
-                <img src={previewUrl} alt="Preview" className="mt-2 h-24 w-full object-cover rounded-lg" />
-              )}
             </div>
 
             {/* Preview em tempo real */}
