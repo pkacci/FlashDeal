@@ -195,7 +195,7 @@ const OfertasPage: React.FC = () => {
       {/* Header */}
       <header className="bg-white px-4 py-3 border-b border-neutral-100 sticky top-0 z-20">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-lg font-bold text-primary-500">⚡ FlashDeal</span>
+          <span className="text-lg font-bold text-primary-500">⚡ LiquiBairro</span>
           <span className="text-xs text-neutral-400">
             {geoStatus === 'success' ? '📍 Perto de você' : '📍 São Paulo'}
           </span>

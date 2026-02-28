@@ -126,7 +126,7 @@ const DicaMotor: React.FC<DicaMotorProps> = ({ dica, onAcao, onDismiss }) => {
     <div
       className={`relative border rounded-xl p-4 ${COR_POR_TIPO[dica.tipo]}`}
       role="note"
-      aria-label="Radar de Demanda FlashDeal"
+      aria-label="Radar de Demanda LiquiBairro"
     >
       {/* Botão fechar — opcional */}
       {onDismiss && (

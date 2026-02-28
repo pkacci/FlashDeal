@@ -218,7 +218,7 @@ const OnboardingIA: React.FC = () => {
           <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center">
             <span className="text-white font-black text-sm">F</span>
           </div>
-          <span className="text-white font-bold text-lg tracking-tight">FlashDeal</span>
+          <span className="text-white font-bold text-lg tracking-tight">LiquiBairro</span>
         </div>
 
         <h1 className="text-2xl font-black text-white leading-tight mb-1">

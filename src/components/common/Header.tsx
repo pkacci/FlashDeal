@@ -42,9 +42,9 @@ export default function Header({ title, showBack = false }: HeaderProps) {
             </button>
           ) : (
             <Link to="/" className="flex items-center gap-2">
-              {/* Logo FlashDeal — laranja primário */}
+              {/* Logo LiquiBairro — laranja primário */}
               <span className="text-xl font-extrabold text-primary-500">
-                ⚡ FlashDeal
+                ⚡ LiquiBairro
               </span>
             </Link>
           )}

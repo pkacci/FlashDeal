@@ -1,6 +1,6 @@
 {
-  "name": "FlashDeal — Ofertas Relâmpago",
-  "short_name": "FlashDeal",
+  "name": "LiquiBairro — Ofertas Relâmpago",
+  "short_name": "LiquiBairro",
   "description": "Ofertas relâmpago de PMEs perto de você. Pague com Pix, use na hora.",
   "start_url": "/",
   "display": "standalone",

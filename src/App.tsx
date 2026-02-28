@@ -2,7 +2,7 @@
 // INÍCIO: src/App.tsx
 // Versão: 1.0.0 | Data: 2026-02-25
 // Deps: React, react-router-dom, contexts, pages, components
-// Descrição: Roteamento principal do FlashDeal
+// Descrição: Roteamento principal do LiquiBairro
 //            — Providers: AuthProvider, ToastProvider
 //            — Rotas públicas, PME e Consumidor
 //            — ProtectedRoute guarda rotas por role

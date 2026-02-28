@@ -1,7 +1,7 @@
 // ============================================================
 // INÍCIO: src/utils/validators.ts
 // Versão: 2.0.0 | Data: 2026-02-26
-// Adições v2: mapeamento CNAE → categoria FlashDeal
+// Adições v2: mapeamento CNAE → categoria LiquiBairro
 // ============================================================
 
 export function validarFormatoCNPJ(cnpj: string): boolean {
@@ -45,7 +45,7 @@ export interface ResultadoValidacaoCNPJ {
   erro?: string;
 }
 
-// ─── Mapeamento CNAE → Categoria FlashDeal ───────────────────
+// ─── Mapeamento CNAE → Categoria LiquiBairro ───────────────────
 // CNAE é o código de atividade econômica retornado pela Receita Federal
 // Prefixos de 2 dígitos cobrem a maioria dos casos
 const CNAE_PARA_CATEGORIA: Record<string, string> = {

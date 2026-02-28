@@ -1,38 +1,3 @@
-// ============================================================
-// INÍCIO: src/pages/Home.tsx
-// Versão: 2.0.0 | Data: 2026-02-27
-// Deps: React, react-router-dom, firebase/firestore
-// Melhorias v2.0:
-//   — Urgência ao vivo: contador de ofertas ativas no Firestore
-//   — CTA PME mais específico e orientado à ação
-//   — Benefícios PME com linguagem mais agressiva
-//   — Seção de prova social adicionada
-//   — Nomenclatura estratégica: sem referência a IA
-// ============================================================
-
-import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { collection, query, where, getCountFromServer } from 'firebase/firestore';
-import { db } from '../services/firebase';
-
-// #region Dados estáticos
-const PASSOS = [
-  { icone: '📍', titulo: 'Encontre', desc: 'Ofertas relâmpago perto de você, em tempo real.' },
-  { icone: '💳', titulo: 'Pague',    desc: 'Garanta com Pix em segundos. Confirmação instantânea.' },
-  { icone: '🎫', titulo: 'Aproveite', desc: 'Mostre o QR Code na loja e aproveite o desconto.' },
-];
-
-const BENEFICIOS_PME = [
-  '10 ofertas grátis por mês — sem cartão de crédito',
-  'Ative seu negócio em 3 minutos, sem burocracia',
-  'Receba Pix direto, sem intermediários',
-  'Fórmulas de Venda prontas — publique em 60 segundos',
-];
-
-const PROVAS_SOCIAIS = [
-  { icone: '🍕', texto: 'Restaurantes lotam horários mortos' },
-  { icone: '💇', texto: 'Salões preenchem agenda vazia' },
-  { icone: '💪', texto: 'Academias vendem aulas experimentais' },
 ];
 // #endregion
 
@@ -65,7 +30,7 @@ const Home: React.FC = () => {
 
       {/* Header mínimo */}
       <header className="flex items-center justify-between px-4 py-4 border-b border-neutral-100">
-        <span className="text-xl font-bold text-primary-500">⚡ FlashDeal</span>
+        <span className="text-xl font-bold text-primary-500">⚡ LiquiBairro</span>
         <button
           onClick={() => navigate('/login')}
           className="text-sm text-neutral-600 font-medium hover:text-primary-500 transition-colors"
@@ -178,7 +143,7 @@ const Home: React.FC = () => {
       {/* Footer */}
       <footer className="text-center px-6 py-8 border-t border-neutral-100">
         <p className="text-xs text-neutral-400">
-          © 2026 FlashDeal ·{' '}
+          © 2026 LiquiBairro ·{' '}
           <button className="underline hover:text-neutral-600">Termos</button>
           {' · '}
           <button className="underline hover:text-neutral-600">Privacidade</button>
@@ -192,6 +157,3 @@ const Home: React.FC = () => {
 
 export default Home;
 
-// ============================================================
-// FIM: src/pages/Home.tsx
-// ============================================================

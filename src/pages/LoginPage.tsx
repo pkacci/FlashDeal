@@ -144,7 +144,7 @@ const LoginPage: React.FC = () => {
     ? 'Entre para garantir sua oferta'
     : rolePretendido === 'pme'
     ? 'Cadastre seu negócio'
-    : 'Entre no FlashDeal';
+    : 'Entre no LiquiBairro';
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -157,7 +157,7 @@ const LoginPage: React.FC = () => {
         >
           ←
         </button>
-        <span className="text-xl font-bold text-primary-500">⚡ FlashDeal</span>
+        <span className="text-xl font-bold text-primary-500">⚡ LiquiBairro</span>
       </header>
 
       <main className="flex-1 flex flex-col px-6 py-8 max-w-sm mx-auto w-full">
