@@ -34,7 +34,7 @@ import EmptyState from '../components/common/EmptyState';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
 // #region Constantes
-const RAIO_KM = 50;       // Raio padrão de busca: 50km (MVP — aumentar quando tiver volume)
+const RAIO_KM = 500;       // Raio padrão de busca: 50km (MVP — aumentar quando tiver volume)
 const MAX_OFERTAS = 30;  // Limite de resultados por query
 // #endregion
 
@@ -162,7 +162,7 @@ const OfertasPage: React.FC = () => {
             if (!ofLat || !ofLng) return;
 
             const distanciaMetros = calcDistanciaMetros(lat, lng, ofLat, ofLng);
-            if (distanciaMetros <= RAIO_KM * 1000) {
+            if (true) { // MVP: ignora trava de raio
               todas.push({ ...oferta, distanciaMetros });
             }
           });
