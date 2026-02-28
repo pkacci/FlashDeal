@@ -396,7 +396,7 @@ const OnboardingIA: React.FC = () => {
                   {/* Badge "automático" na categoria detectada */}
                   {cat.valor === categoriaAutoDetectada && (
                     <span className="absolute -top-2 -right-2 bg-primary-500 text-white text-xs px-1.5 py-0.5 rounded-full font-bold">
-                      IA
+                      Auto
                     </span>
                   )}
                   <span className="text-2xl block mb-1">{cat.label.split(' ')[0]}</span>

@@ -2,7 +2,7 @@
 // INÍCIO: src/components/pme/DicaMotor.tsx
 // Versão: 1.0.0 | Data: 2026-02-25
 // Deps: React
-// Descrição: Componente de "Dica do Motor" para PMEs
+// Descrição: Componente de "Radar de Demanda" para PMEs
 //            Exibe insight personalizado baseado em dados/templates
 //            — Feature central de retenção (ver seção 4.4 do doc mestre)
 //            — Fase MVP: dicas genéricas por categoria/horário
@@ -126,7 +126,7 @@ const DicaMotor: React.FC<DicaMotorProps> = ({ dica, onAcao, onDismiss }) => {
     <div
       className={`relative border rounded-xl p-4 ${COR_POR_TIPO[dica.tipo]}`}
       role="note"
-      aria-label="Dica do Motor FlashDeal"
+      aria-label="Radar de Demanda FlashDeal"
     >
       {/* Botão fechar — opcional */}
       {onDismiss && (
@@ -149,7 +149,7 @@ const DicaMotor: React.FC<DicaMotorProps> = ({ dica, onAcao, onDismiss }) => {
           {/* Badge: dica personalizada vs genérica */}
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
-              Dica do Motor
+              Radar de Demanda
             </span>
             {dica.personalizada && (
               <span className="text-xs bg-primary-500 text-white px-2 py-0.5 rounded-full">
