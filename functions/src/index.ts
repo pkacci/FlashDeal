@@ -285,6 +285,7 @@ export const gerarPix = onCall(async (request: CallableRequest) => {
   // Se não configurado, retorna QR Code simulado para testes
   const pixKey = process.env.ASAAS_API_KEY;
   console.log('DEBUG pixKey presente:', !!pixKey, '| tamanho:', pixKey?.length ?? 0);
+  console.log('DEBUG ENV KEYS:', Object.keys(process.env).filter(k => k.includes('ASAAS') || k.includes('PIX')));
 
   if (!pixKey) {
     // Modo sandbox/simulação para testes beta
