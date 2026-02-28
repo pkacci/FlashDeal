@@ -111,6 +111,7 @@ const CriarOfertaPage: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file || !usuario?.uid) return;
     const path = `ofertas/${usuario.uid}/${Date.now()}.webp`;
+    setField('imagemUrl', URL.createObjectURL(file));
     const url = await upload(file, path);
     if (url) setField('imagemUrl', url);
   };
