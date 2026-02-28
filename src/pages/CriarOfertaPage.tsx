@@ -68,8 +68,8 @@ const CriarOfertaPage: React.FC = () => {
   const navigate = useNavigate();
   const { addToast } = useToast();
   const { usuario, pmeData } = useAuth();
-  // DEBUG TEMPORÁRIO — remover após fix
-  console.log('PME GEO DEBUG:', JSON.stringify(pmeData?.geo));
+  // Aguarda pmeData carregar antes de inicializar o form com coordenadas corretas
+  if (!pmeData) return null;
 
   const [etapa, setEtapa] = useState<'template' | 'formulario'>('template');
 
