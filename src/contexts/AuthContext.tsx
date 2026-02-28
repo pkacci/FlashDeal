@@ -49,7 +49,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const snap = await getDoc(doc(db, 'pmes', uid));
       if (snap.exists()) {
-        setPmeData(snap.data() as PMEData);
+        const raw = snap.data() as PMEData;
+        // Normaliza GeoPoint do Firestore para { latitude, longitude }
+        const geo = raw.geo as any;
+        if (geo) {
+          raw.geo = {
+            latitude: geo.latitude ?? geo._lat ?? geo.lat ?? -23.5505,
+            longitude: geo.longitude ?? geo._long ?? geo.lng ?? -46.6333,
+          } as any;
+        }
+        setPmeData(raw);
         setRole('pme');
         return true;
       }
