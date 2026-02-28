@@ -38,6 +38,7 @@ export interface PME {
   categoria: CategoriaPME
   subcategoria?: string
   endereco: EnderecoPME
+  geo?: GeoPoint         // Coordenadas raiz (para queries geohash)
   geohash: string        // Queries por raio (geofire-common)
   telefone: string
   email: string

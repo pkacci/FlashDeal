@@ -17,6 +17,7 @@ import { auth, db } from '../services/firebase';
 
 export interface PMEData {
   endereco?: Record<string, any>;
+  geo?: { latitude: number; longitude: number };
   geohash?: string;
   nomeFantasia?: string;
   plano?: 'free' | 'pro' | 'premium';
