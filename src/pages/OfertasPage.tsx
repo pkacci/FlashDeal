@@ -34,7 +34,7 @@ import EmptyState from '../components/common/EmptyState';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 
 // #region Constantes
-const RAIO_KM = 2;       // Raio padrão de busca: 2km
+const RAIO_KM = 50;       // Raio padrão de busca: 50km (MVP — aumentar quando tiver volume)
 const MAX_OFERTAS = 30;  // Limite de resultados por query
 // #endregion
 
